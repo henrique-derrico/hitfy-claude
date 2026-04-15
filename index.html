@@ -1,0 +1,3496 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code · Arquitetura · Hitfy v4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --bg-0: #07090f;
+    --bg-1: #0d111b;
+    --bg-2: #141927;
+    --border: #1e2537;
+    --border-strong: #2a3246;
+    --text-0: #f1f5f9;
+    --text-1: #cbd5e1;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+
+    --c-user:    #a78bfa;
+    --c-command: #60a5fa;
+    --c-agent:   #f87171;
+    --c-skill:   #34d399;
+    --c-hook:    #fbbf24;
+    --c-mcp:     #c084fc;
+    --c-output:  #94a3b8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    width: 100%;
+    font-family: 'Inter', -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg-0);
+    color: var(--text-0);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  body {
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(96, 165, 250, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 100%, rgba(167, 139, 250, 0.04) 0%, transparent 60%),
+      var(--bg-0);
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(148, 163, 184, 0.18) 1.2px, transparent 1.2px);
+    background-size: 30px 30px;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: radial-gradient(ellipse 78% 65% at 50% 50%, black 45%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 78% 65% at 50% 50%, black 45%, transparent 100%);
+  }
+  #graph { z-index: 1; }
+
+  /* ============ HEADER ============ */
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 20px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 20;
+    pointer-events: none;
+  }
+  header > * { pointer-events: auto; }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand-mark {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 24px rgba(96, 165, 250, 0.25), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+  .brand-mark svg { width: 18px; height: 18px; }
+  .brand-text h1 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  .brand-text p {
+    font-size: 13px;
+    color: var(--text-3);
+    letter-spacing: 0.02em;
+    margin-top: 3px;
+  }
+
+  .top-stats {
+    display: flex;
+    gap: 6px;
+    background: rgba(13, 17, 27, 0.7);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .top-stats .stat {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 8px;
+    border-right: 1px solid var(--border);
+  }
+  .top-stats .stat:last-child { border-right: none; }
+  .top-stats .stat strong {
+    color: var(--text-0);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============ GRAPH ============ */
+  #graph {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .link {
+    stroke-width: 1;
+    fill: none;
+    transition: stroke 0.25s ease, stroke-width 0.25s ease, stroke-opacity 0.25s ease;
+  }
+
+  .node {
+    cursor: pointer;
+    transition: opacity 0.25s ease;
+  }
+  .node.dim { opacity: 0.2; }
+
+  .node-shape {
+    stroke-width: 1.5;
+    transition: all 0.25s ease;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+  }
+  .node:hover .node-shape,
+  .node.selected .node-shape {
+    filter: drop-shadow(0 0 16px currentColor) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+    stroke-width: 2.5;
+  }
+  .node.pinned .node-shape {
+    stroke-width: 2.2;
+    filter: drop-shadow(0 0 10px currentColor) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+  }
+  .pin-indicator {
+    fill: currentColor;
+    stroke: var(--bg-0);
+    stroke-width: 1.5;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  .node.pinned .pin-indicator { opacity: 1; }
+
+  .node-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    fill: var(--text-1);
+    text-anchor: middle;
+    pointer-events: none;
+    user-select: none;
+    letter-spacing: -0.005em;
+  }
+  .node-sublabel {
+    font-size: 9px;
+    font-weight: 400;
+    fill: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .node.dim .node-label,
+  .node.dim .node-sublabel { opacity: 0.3; }
+
+  /* ============ LEGEND ============ */
+  .legend {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    background: rgba(13, 17, 27, 0.78);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-radius: 14px;
+    padding: 16px 18px 16px 18px;
+    z-index: 10;
+    min-width: 240px;
+    max-height: calc(100vh - 160px);
+    overflow-y: auto;
+    transition: min-width 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                width 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                padding 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .legend-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin: 0 0 12px auto; /* right-align, own row above the search */
+    border-radius: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-3);
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s, border-color 0.18s, margin 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .legend-toggle:hover {
+    background: var(--border);
+    color: var(--text-0);
+    border-color: var(--border-strong);
+  }
+  .legend-toggle svg {
+    width: 13px;
+    height: 13px;
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* COLLAPSED state — only icons stacked vertically */
+  .legend.collapsed {
+    min-width: auto;
+    width: 56px;
+    padding: 14px 8px 12px;
+    overflow: hidden;
+  }
+  .legend.collapsed .legend-search,
+  .legend.collapsed .legend-title,
+  .legend.collapsed .legend-item span,
+  .legend.collapsed .legend-count,
+  .legend.collapsed .legend-section + .legend-section {
+    display: none;
+  }
+  .legend.collapsed .legend-section {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+  .legend.collapsed .legend-item {
+    justify-content: center;
+    padding: 5px 0;
+    gap: 0;
+  }
+  .legend.collapsed .legend-item:hover {
+    transform: scale(1.1);
+  }
+  .legend.collapsed .legend-toggle {
+    margin: 0 auto 10px auto;
+  }
+  .legend.collapsed .legend-toggle svg {
+    transform: rotate(180deg);
+  }
+  .legend::-webkit-scrollbar { width: 4px; }
+  .legend::-webkit-scrollbar-track { background: transparent; }
+  .legend::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
+  .legend-section + .legend-section {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .legend-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--text-1);
+    cursor: pointer;
+    transition: color 0.15s, transform 0.15s;
+    user-select: none;
+  }
+  .legend-item:hover {
+    color: var(--text-0);
+    transform: translateX(2px);
+  }
+  .legend-shape {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .legend-edge {
+    width: 26px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .legend-shape svg,
+  .legend-edge svg { display: block; overflow: visible; }
+  .legend-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    background: var(--bg-2);
+    padding: 3px 8px;
+    border-radius: 5px;
+    min-width: 26px;
+    text-align: center;
+  }
+
+  /* ============ DETAILS PANEL ============ */
+  .details-panel {
+    position: fixed;
+    top: 0; right: 0;
+    width: 400px;
+    height: 100%;
+    background: rgba(13, 17, 27, 0.92);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-left: 1px solid var(--border);
+    z-index: 30;
+    box-shadow: -24px 0 48px rgba(0, 0, 0, 0.4);
+    transform: translateX(100%);
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .details-panel.open { transform: translateX(0); }
+
+  .details-header {
+    flex-shrink: 0;
+    padding: 22px 30px 16px;
+  }
+  .details-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 30px 28px;
+    border-top: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(20, 25, 39, 0.4), transparent 80px);
+  }
+  .details-scroll::-webkit-scrollbar { width: 5px; }
+  .details-scroll::-webkit-scrollbar-track { background: transparent; }
+  .details-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+  .details-close {
+    position: absolute;
+    top: 20px; right: 20px;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .details-close:hover { background: var(--border); color: var(--text-0); }
+
+  .details-icon-wrap {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .details-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    padding: 6px 11px 6px 9px;
+    border-radius: 7px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    margin-bottom: 18px;
+    transition: all 0.15s;
+  }
+  .details-back:hover {
+    background: var(--border);
+    color: var(--text-0);
+    transform: translateX(-2px);
+  }
+  .details-back svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+  }
+  .details-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 24px;
+    color: var(--text-3);
+    font-size: 12.5px;
+    text-align: center;
+    line-height: 1.55;
+  }
+  .details-empty svg {
+    width: 28px;
+    height: 28px;
+    opacity: 0.5;
+  }
+  .details-icon-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: currentColor;
+    opacity: 0.1;
+  }
+  .details-icon-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 1px solid currentColor;
+    opacity: 0.4;
+  }
+  .details-icon-wrap svg {
+    width: 24px;
+    height: 24px;
+    position: relative;
+    z-index: 1;
+    filter: drop-shadow(0 0 12px currentColor);
+  }
+
+  .details-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 5px 11px;
+    border-radius: 20px;
+    margin-bottom: 10px;
+    border: 1px solid;
+  }
+  .details-kind::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .details-title {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin-bottom: 5px;
+  }
+  .details-subtitle {
+    font-size: 12px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 14px;
+  }
+  .details-desc {
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text-1);
+    margin-bottom: 0;
+  }
+  .details-section {
+    margin-top: 26px;
+  }
+  .details-section h4 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+    margin-bottom: 12px;
+  }
+  .details-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .details-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    padding: 6px 11px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text-1);
+    font-family: 'JetBrains Mono', monospace;
+    transition: all 0.18s;
+    cursor: pointer;
+  }
+  .details-chip .chip-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--chip-color, var(--text-2));
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 4px var(--chip-color, transparent));
+  }
+  .details-chip:hover {
+    border-color: var(--chip-color, var(--border-strong));
+    color: var(--text-0);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4), 0 0 0 1px var(--chip-color, transparent);
+  }
+
+  /* ============ FLOW TIMELINE ============ */
+  .details-flow {
+    position: relative;
+    padding-left: 30px;
+    margin-top: 4px;
+  }
+  .details-flow::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 10px;
+    bottom: 10px;
+    width: 1px;
+    background: linear-gradient(180deg, transparent 0%, var(--border-strong) 8%, var(--border-strong) 92%, transparent 100%);
+  }
+  .flow-step {
+    position: relative;
+    padding-bottom: 16px;
+  }
+  .flow-step:last-child { padding-bottom: 0; }
+  .flow-step::before {
+    content: attr(data-num);
+    position: absolute;
+    left: -30px;
+    top: 0;
+    width: 23px;
+    height: 23px;
+    border-radius: 50%;
+    background: var(--bg-1);
+    border: 1px solid var(--border-strong);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-1);
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    transition: all 0.2s;
+  }
+  .flow-step:hover::before {
+    background: var(--accent, var(--border-strong));
+    border-color: var(--accent, var(--border-strong));
+    color: var(--bg-0);
+  }
+  .flow-step.highlight::before {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-0);
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.05), 0 0 12px var(--accent);
+  }
+  .flow-step-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-0);
+    margin-bottom: 3px;
+    letter-spacing: -0.005em;
+  }
+  .flow-step-desc {
+    font-size: 12.5px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+  .flow-step-desc code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: var(--bg-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text-1);
+  }
+
+  /* ============ INTRO MESSAGE ============ */
+  .intro {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: rgba(13, 17, 27, 0.78);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 12px;
+    padding: 11px 18px;
+    z-index: 10;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+  .intro kbd {
+    display: inline-block;
+    padding: 2px 7px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-1);
+    vertical-align: 1px;
+    margin-right: 3px;
+  }
+  .intro .sep {
+    color: var(--text-3);
+    margin: 0 8px;
+    opacity: 0.5;
+  }
+
+  /* ============ INLINE CHIPS (inside flow desc) ============ */
+  .inline-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--chip-color) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--chip-color) 38%, transparent);
+    color: var(--chip-color);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    line-height: 1.4;
+  }
+  .inline-chip svg {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+  }
+  .inline-chip:hover {
+    background: color-mix(in srgb, var(--chip-color) 25%, transparent);
+    border-color: var(--chip-color);
+    filter: brightness(1.15);
+  }
+
+  /* ============ HEADER ACTION BUTTONS ============ */
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-right: 10px;
+  }
+  .header-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 9px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    background: rgba(13, 17, 27, 0.7);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: var(--text-1);
+    transition: all 0.18s;
+    letter-spacing: -0.005em;
+  }
+  .header-btn:hover {
+    background: rgba(96, 165, 250, 0.12);
+    border-color: rgba(96, 165, 250, 0.45);
+    color: var(--text-0);
+    transform: translateY(-1px);
+  }
+  .header-btn svg { flex-shrink: 0; }
+  .header-btn-primary {
+    background: rgba(241, 245, 249, 0.08);
+    border-color: rgba(241, 245, 249, 0.35);
+    color: var(--text-0);
+  }
+  .header-btn-primary:hover {
+    background: rgba(241, 245, 249, 0.16);
+    border-color: rgba(241, 245, 249, 0.55);
+  }
+  .header-btn.active {
+    background: rgba(249, 115, 22, 0.15);
+    border-color: rgba(249, 115, 22, 0.55);
+    color: #fb923c;
+  }
+  .header-btn.active:hover {
+    background: rgba(249, 115, 22, 0.22);
+    border-color: rgba(249, 115, 22, 0.75);
+  }
+
+  /* ============ HEAT MAP (centrality visualization) ============ */
+  .heat-scale {
+    display: none;
+  }
+  body.heat-mode .heat-scale {
+    display: block;
+  }
+  .heat-bar {
+    height: 8px;
+    border-radius: 4px;
+    margin-top: 4px;
+    margin-bottom: 8px;
+    box-shadow: 0 0 14px rgba(249, 115, 22, 0.25);
+  }
+  .heat-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+  }
+  .heat-range {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9.5px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .heat-range span {
+    padding: 1px 5px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* ============ TOUR OVERLAY ============ */
+  .tour-overlay {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translate(-50%, 140%);
+    width: min(620px, calc(100vw - 64px));
+    background: rgba(13, 17, 27, 0.96);
+    border: 1px solid var(--border-strong);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border-radius: 18px;
+    padding: 26px 30px 22px;
+    z-index: 50;
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(96, 165, 250, 0.12);
+    transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .tour-overlay.active {
+    transform: translate(-50%, 0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .tour-progress {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .tour-progress-text {
+    font-size: 11px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .tour-progress-text strong {
+    color: var(--text-1);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .tour-progress-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--bg-2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .tour-progress-fill {
+    height: 100%;
+    background: var(--text-0);
+    border-radius: 2px;
+    transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow: 0 0 10px rgba(241, 245, 249, 0.45);
+  }
+  .tour-title {
+    font-size: 19px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-0);
+    letter-spacing: -0.015em;
+  }
+  .tour-desc {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text-1);
+    margin-bottom: 20px;
+  }
+  .tour-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .tour-btn {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 9px 16px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-1);
+  }
+  .tour-btn:hover:not(:disabled) {
+    background: var(--bg-2);
+    color: var(--text-0);
+  }
+  .tour-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .tour-btn-skip {
+    color: var(--text-3);
+    border-color: transparent;
+  }
+  .tour-btn-next {
+    background: var(--text-0);
+    border-color: transparent;
+    color: var(--bg-0);
+    font-weight: 600;
+    margin-left: auto;
+    box-shadow: 0 4px 14px rgba(241, 245, 249, 0.18);
+  }
+  .tour-btn-next:hover:not(:disabled) {
+    background: #ffffff;
+    color: var(--bg-0);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(241, 245, 249, 0.28);
+  }
+
+  /* Dim non-highlighted nodes during tour */
+  body.tour-mode .node:not(.tour-on) {
+    opacity: 0.1;
+  }
+  body.tour-mode .node.tour-on .node-shape {
+    filter: drop-shadow(0 0 22px currentColor) drop-shadow(0 4px 14px rgba(0, 0, 0, 0.5));
+    stroke-width: 2.8;
+  }
+  body.tour-mode .intro {
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Lock graph and legend interactions while tour is active so user hovers
+     don't compete with the tour highlights */
+  body.tour-mode #graph,
+  body.tour-mode .legend,
+  body.tour-mode .details-panel {
+    pointer-events: none;
+  }
+  /* Same lock during the entrance/reset animation */
+  body.animating #graph {
+    pointer-events: none;
+  }
+
+  /* ============ DATA PACKETS (particles flowing along edges) ============ */
+  .packet {
+    pointer-events: none;
+    filter: drop-shadow(0 0 4px currentColor);
+    mix-blend-mode: screen;
+  }
+  .packet.trail {
+    opacity: 0.35;
+    filter: drop-shadow(0 0 2px currentColor);
+  }
+  body.tour-mode .packet-layer,
+  body.animating .packet-layer {
+    display: none;
+  }
+
+
+  /* ============ PSEUDO FULLSCREEN ============
+     Hides UI chrome so the graph fills the viewport. Works inside iframes
+     where the native Fullscreen API is blocked. */
+  body.pseudo-fullscreen header,
+  body.pseudo-fullscreen .intro {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .exit-fullscreen-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: rgba(13, 17, 27, 0.85);
+    border: 1px solid var(--border-strong);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: var(--text-1);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    cursor: pointer;
+    transition: all 0.18s;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  .exit-fullscreen-btn:hover {
+    background: rgba(20, 25, 39, 0.95);
+    border-color: var(--text-3);
+    color: var(--text-0);
+    transform: scale(1.05);
+  }
+  body.pseudo-fullscreen .exit-fullscreen-btn {
+    display: flex;
+  }
+
+  /* ============ ABOUT MODAL ============ */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 9, 15, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    padding: 32px;
+  }
+  .modal-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .modal {
+    width: min(640px, 100%);
+    max-height: calc(100vh - 64px);
+    background: var(--bg-1);
+    border: 1px solid var(--border-strong);
+    border-radius: 20px;
+    padding: 40px 44px 28px;
+    position: relative;
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    overflow-y: auto;
+    transform: translateY(20px) scale(0.98);
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .modal-backdrop.open .modal { transform: translateY(0) scale(1); }
+  .modal::-webkit-scrollbar { width: 6px; }
+  .modal::-webkit-scrollbar-track { background: transparent; }
+  .modal::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+  .modal-close {
+    position: absolute;
+    top: 18px; right: 18px;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .modal-close:hover { background: var(--border); color: var(--text-0); }
+  .modal-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-3);
+    margin-bottom: 10px;
+  }
+  .modal h2 {
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 26px;
+    line-height: 1.2;
+  }
+  .modal-section {
+    margin-bottom: 22px;
+  }
+  .modal-section h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-0);
+    margin-bottom: 9px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .modal-section h3::before {
+    content: '';
+    width: 18px;
+    height: 1px;
+    background: var(--text-3);
+  }
+  .modal-section p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-1);
+  }
+  .modal-section p strong { color: var(--text-0); font-weight: 600; }
+  .modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    gap: 16px;
+  }
+  .modal-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    color: var(--text-2);
+    cursor: pointer;
+    user-select: none;
+  }
+  .modal-checkbox input {
+    margin: 0;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--text-1);
+    cursor: pointer;
+  }
+  .modal-cta {
+    background: var(--text-0);
+    color: var(--bg-0);
+    border: none;
+    padding: 11px 24px;
+    border-radius: 9px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .modal-cta:hover {
+    background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(241, 245, 249, 0.22);
+  }
+
+  /* ============ COMMAND PALETTE (Cmd+K) ============ */
+  .palette-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 9, 15, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 90;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 14vh;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .palette-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .palette {
+    width: min(580px, calc(100vw - 64px));
+    background: var(--bg-1);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+    transform: translateY(-12px) scale(0.98);
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .palette-backdrop.open .palette {
+    transform: translateY(0) scale(1);
+  }
+  .palette-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 17px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .palette-header > svg {
+    width: 16px;
+    height: 16px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+  .palette-header input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-0);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    min-width: 0;
+  }
+  .palette-header input::placeholder { color: var(--text-3); }
+  .palette-header kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 3px 7px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+  .palette-list {
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .palette-list::-webkit-scrollbar { width: 6px; }
+  .palette-list::-webkit-scrollbar-track { background: transparent; }
+  .palette-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+  .palette-empty {
+    padding: 28px 20px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+  .palette-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-1);
+    transition: background 0.1s;
+  }
+  .palette-item.selected {
+    background: var(--bg-2);
+    color: var(--text-0);
+  }
+  .palette-item-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(13, 17, 27, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 1px solid currentColor;
+  }
+  .palette-item-icon svg { width: 14px; height: 14px; }
+  .palette-item-label {
+    font-weight: 500;
+    flex: 1;
+    color: inherit;
+  }
+  .palette-item-kind {
+    font-size: 10px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .palette-footer {
+    display: flex;
+    gap: 18px;
+    padding: 11px 20px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .palette-footer kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 1px 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-right: 5px;
+    color: var(--text-2);
+  }
+
+  /* ============ SEARCH BAR (in legend) ============ */
+  .legend-search {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 9px 12px;
+    margin-bottom: 16px;
+    transition: border-color 0.18s, box-shadow 0.18s;
+  }
+  .legend-search:focus-within {
+    border-color: var(--text-3);
+    box-shadow: 0 0 0 3px rgba(241, 245, 249, 0.05);
+  }
+  .legend-search > svg {
+    width: 14px;
+    height: 14px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+  .legend-search input {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-0);
+    font-family: inherit;
+    font-size: 13px;
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+  .legend-search input::placeholder { color: var(--text-3); }
+  .search-clear {
+    background: none;
+    border: none;
+    color: var(--text-3);
+    font-size: 18px;
+    line-height: 1;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .search-clear.visible { display: flex; }
+  .search-clear:hover { color: var(--text-0); background: var(--border); }
+  .legend-search-hint {
+    margin-left: auto;
+    font-size: 9.5px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    padding: 2px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .legend-search:focus-within .legend-search-hint { display: none; }
+
+  /* Search highlight states */
+  .node.search-dim { opacity: 0.1; }
+  .node.search-hit .node-shape {
+    filter: drop-shadow(0 0 22px currentColor) drop-shadow(0 4px 14px rgba(0, 0, 0, 0.5));
+    stroke-width: 2.8;
+  }
+
+  /* ============ TOOLTIP — matches the legend panel styling exactly ============ */
+  .tooltip {
+    position: fixed;
+    background: rgba(13, 17, 27, 0.78);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    z-index: 35;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    max-width: 280px;
+    min-width: 220px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+    transform: translate(-50%, calc(-100% - 16px));
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip-kind {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tooltip-kind::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .tooltip-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-0);
+    margin-bottom: 8px;
+    letter-spacing: -0.005em;
+  }
+  .tooltip-desc {
+    font-size: 13px;
+    color: var(--text-1);
+    line-height: 1.55;
+  }
+  .tooltip-meta {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tooltip-meta::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-3);
+    opacity: 0.6;
+  }
+  .tooltip-hint {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ============ MODEL TIER (agents) ============ */
+  /* SVG tier dots inside the agent node */
+  .node-tier-dot { transition: fill 0.2s; }
+
+  /* HTML tier badge in the details panel */
+  .tier-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 13px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-top: 10px;
+    margin-bottom: 14px;
+  }
+  .tier-badge .tier-dots-html {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .tier-badge .tier-dot-html {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: rgba(148, 163, 184, 0.22);
+    transition: all 0.2s;
+  }
+  .tier-badge .tier-dot-html.filled {
+    background: var(--tier-color);
+    box-shadow: 0 0 8px var(--tier-color);
+  }
+  .tier-badge .tier-name {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-0);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tier-badge .tier-meta {
+    font-size: 11.5px;
+    color: var(--text-3);
+    margin-left: auto;
+    text-align: right;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 900px) {
+    .details-panel { width: 100%; }
+    .top-stats { display: none; }
+    .intro { display: none; }
+    .header-actions .header-btn span { display: none; }
+    .header-actions .header-btn { padding: 9px; }
+    .tour-overlay { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2 L14 10 L22 12 L14 14 L12 22 L10 14 L2 12 L10 10 Z"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>Claude Code — Arquitetura da Configuração</h1>
+      <p>Hitfy v4 · mapa interativo de comandos, agentes, skills e integrações</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="header-btn header-btn-primary" id="tour-start" aria-label="Iniciar tour guiado">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+        <polygon points="6 4 20 12 6 20"/>
+      </svg>
+      <span>Tour guiado</span>
+    </button>
+    <button class="header-btn" id="fullscreen-toggle" aria-label="Alternar tela cheia">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/>
+      </svg>
+      <span>Tela cheia</span>
+    </button>
+    <button class="header-btn" id="organize-toggle" aria-label="Organizar grafo" title="Organizar grafo (O) — agrupa por tipo, lado a lado">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="4" width="4" height="16" rx="1"/>
+        <rect x="10" y="4" width="4" height="16" rx="1"/>
+        <rect x="16" y="4" width="4" height="16" rx="1"/>
+      </svg>
+      <span>Organizar</span>
+    </button>
+    <button class="header-btn" id="reset-view" aria-label="Resetar visualização" title="Resetar (R)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+        <path d="M3 21v-5h5"/>
+      </svg>
+      <span>Reset</span>
+    </button>
+    <button class="header-btn" id="heat-toggle" aria-label="Heat map de centralidade" title="Heat map — mostra os nós mais conectados">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+      </svg>
+      <span>Heat</span>
+    </button>
+    <button class="header-btn" id="about-trigger" aria-label="Sobre esta página" title="Sobre esta página">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7"/>
+        <line x1="12" y1="17" x2="12" y2="17.01"/>
+      </svg>
+      <span>Sobre</span>
+    </button>
+  </div>
+</header>
+
+<svg id="graph"></svg>
+
+<aside class="legend" id="legend">
+  <button class="legend-toggle" id="legend-toggle" aria-label="Recolher legenda" title="Recolher legenda">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="15 18 9 12 15 6"/>
+    </svg>
+  </button>
+  <div class="legend-search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="7"/>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+    <input type="text" id="search-input" placeholder="Buscar nós..." autocomplete="off" spellcheck="false"/>
+    <button class="search-clear" id="search-clear" aria-label="Limpar busca">×</button>
+    <span class="legend-search-hint">/</span>
+  </div>
+  <div class="legend-section">
+    <div class="legend-title">Camadas</div>
+    <div id="legend-nodes"></div>
+  </div>
+  <div class="legend-section">
+    <div class="legend-title">Conexões</div>
+    <div id="legend-edges"></div>
+  </div>
+  <div class="legend-section heat-scale">
+    <div class="legend-title">Centralidade</div>
+    <div class="heat-bar" id="heat-bar"></div>
+    <div class="heat-labels">
+      <span>frio</span>
+      <span>quente</span>
+    </div>
+    <div class="heat-range">
+      <span id="heat-min">—</span>
+      <span id="heat-max">—</span>
+    </div>
+  </div>
+</aside>
+
+<aside class="details-panel" id="details">
+  <button class="details-close" id="details-close" aria-label="Fechar">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  </button>
+  <div class="details-header" id="details-header"></div>
+  <div class="details-scroll" id="details-scroll"></div>
+</aside>
+
+<div class="intro">
+  <kbd>Ctrl+K</kbd> buscar<span class="sep">·</span><kbd>/</kbd> filtrar<span class="sep">·</span><kbd>O</kbd> organizar<span class="sep">·</span><kbd>R</kbd> reset<span class="sep">·</span><kbd>F</kbd> tela cheia<span class="sep">·</span><kbd>Esc</kbd> fechar
+</div>
+
+<div class="palette-backdrop" id="palette">
+  <div class="palette" role="dialog" aria-label="Buscar nó">
+    <div class="palette-header">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="palette-input" placeholder="Buscar nó por nome..." autocomplete="off" spellcheck="false"/>
+      <kbd>esc</kbd>
+    </div>
+    <div class="palette-list" id="palette-list"></div>
+    <div class="palette-footer">
+      <span><kbd>↑↓</kbd>navegar</span>
+      <span><kbd>↵</kbd>abrir</span>
+      <span><kbd>esc</kbd>fechar</span>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tooltip-kind"></div>
+  <div class="tooltip-label"></div>
+  <div class="tooltip-desc"></div>
+  <div class="tooltip-meta"></div>
+  <div class="tooltip-hint">click para detalhes</div>
+</div>
+
+<div class="modal-backdrop" id="about-modal">
+  <div class="modal" role="dialog" aria-labelledby="about-title">
+    <button class="modal-close" id="about-close" aria-label="Fechar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <div class="modal-eyebrow">Bem-vindo</div>
+    <h2 id="about-title">O que você está vendo?</h2>
+
+    <div class="modal-section">
+      <h3>O que é o Claude Code</h3>
+      <p>É o terminal de desenvolvimento da <strong>Anthropic</strong> — um assistente de IA que vive dentro do repositório, com acesso aos arquivos, ao Git, ao Jira e ao GitLab. Em vez de copiar e colar código entre o ChatGPT e o editor, o dev conversa direto no terminal e o Claude executa.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>O que é este mapa</h3>
+      <p>Esta é a <strong>configuração que fizemos</strong> do Claude Code para o repositório <strong>Hitfy v4</strong>. Cada nó é um pedaço dessa configuração: comandos slash, agentes especializados, skills (base de conhecimento do time), hooks (proteções automáticas) e integrações externas via MCP. As setas mostram como tudo se conecta.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>Como ler o gráfico</h3>
+      <p>Cada cor representa uma <strong>camada da arquitetura</strong>; cada ícone identifica o tipo de elemento. As setas têm cores e estilos diferentes — sólidas são invocações, tracejadas são auto-delegações ou proteções. <strong>Clique em qualquer nó</strong> para ver o que ele faz e o fluxo passo a passo. Use o <strong>"Tour guiado"</strong> no canto superior direito para um passeio narrado.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>Por que isso importa</h3>
+      <p>A configuração transforma <strong>trabalho manual repetitivo</strong> (escrever branch, commit, abrir MR, postar RCA no Jira) em <strong>fluxo automático</strong>. O dev foca no problema; o Claude cuida do boilerplate. Cada agente segue padrões documentados nas skills, então o código gerado é consistente com o resto do repositório.</p>
+    </div>
+
+    <div class="modal-footer">
+      <label class="modal-checkbox">
+        <input type="checkbox" id="about-dontshow"/>
+        Não mostrar novamente
+      </label>
+      <button class="modal-cta" id="about-cta">Entendi, vamos lá</button>
+    </div>
+  </div>
+</div>
+
+<button class="exit-fullscreen-btn" id="exit-fullscreen" aria-label="Sair tela cheia" title="Sair tela cheia (Esc)">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 4H5a1 1 0 0 0-1 1v4M15 4h4a1 1 0 0 1 1 1v4M9 20H5a1 1 0 0 1-1-1v-4M15 20h4a1 1 0 0 0 1-1v-4"/>
+  </svg>
+</button>
+
+<div class="tour-overlay" id="tour-overlay">
+  <div class="tour-progress">
+    <span class="tour-progress-text">Passo <strong id="tour-current">1</strong> / <strong id="tour-total">8</strong></span>
+    <div class="tour-progress-bar"><div class="tour-progress-fill" id="tour-progress-fill"></div></div>
+  </div>
+  <h3 class="tour-title" id="tour-title"></h3>
+  <p class="tour-desc" id="tour-desc"></p>
+  <div class="tour-actions">
+    <button class="tour-btn tour-btn-skip" id="tour-skip">Sair</button>
+    <button class="tour-btn" id="tour-prev">← Anterior</button>
+    <button class="tour-btn tour-btn-next" id="tour-next">Próximo →</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DATA
+// ============================================================
+const GROUPS = {
+  user:    { label: 'Usuário',       color: '#a78bfa', radius: 38 },
+  command: { label: 'Comandos',      color: '#60a5fa', radius: 26 },
+  agent:   { label: 'Agentes',       color: '#f87171', radius: 30 },
+  skill:   { label: 'Skills',        color: '#34d399', radius: 22 },
+  hook:    { label: 'Hooks',         color: '#fbbf24', radius: 22 },
+  mcp:     { label: 'MCP externos',  color: '#c084fc', radius: 24 },
+  output:  { label: 'Entregáveis',   color: '#94a3b8', radius: 22 }
+};
+
+// ============================================================
+// ICONS — inline SVG (Lucide-style), referenced via <use href="#icon-...">
+// All paths use stroke="currentColor" so they inherit the group color
+// ============================================================
+const ICONS = {
+  // Person silhouette
+  user: `<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>`,
+
+  // Terminal prompt: > _
+  command: `<polyline points="6 8 10 12 6 16"/><line x1="13" y1="16" x2="19" y2="16"/>`,
+
+  // Sparkle / 4-point star (AI)
+  agent: `<path d="M12 2 L14 10 L22 12 L14 14 L12 22 L10 14 L2 12 L10 10 Z"/>`,
+
+  // Open book
+  skill: `<path d="M2 5c4 0 8 1 10 3 2-2 6-3 10-3v13c-4 0-8 1-10 3-2-2-6-3-10-3V5z"/><line x1="12" y1="9" x2="12" y2="22"/>`,
+
+  // Shield with check (guard)
+  hook: `<path d="M12 2 L20 5 V12 c0 5-3.5 9-8 10-4.5-1-8-5-8-10V5 L12 2z"/><polyline points="9 12 11 14 15 10"/>`,
+
+  // Plug / connector
+  mcp: `<path d="M9 2v4"/><path d="M15 2v4"/><rect x="6" y="6" width="12" height="6" rx="1.5"/><path d="M12 12v6"/><path d="M9 22h6"/>`,
+
+  // Document with check (deliverable)
+  output: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 14 11 16 15 12"/>`
+};
+
+const NODES = [
+  { id: 'user', label: 'Dev', sublabel: 'entry point', group: 'user',
+    kind: 'Usuário',
+    desc: 'Ponto de partida de todo fluxo. O dev digita um comando slash no Claude Code (ex: /fix-bug AP-2803) e recebe de volta código implementado, RCA publicado no Jira, e MR aberto no GitLab — sem sair do terminal.' },
+
+  // Commands
+  { id: 'cmd-plan-feature', label: '/plan-feature', group: 'command',
+    kind: 'Comando',
+    desc: 'Ponto de entrada obrigatório para qualquer feature. Aciona o agente planner, que classifica a complexidade (Baixa / Média / Alta / Muito Alta). Baixa e Média auto-delegam direto para /implement-feature. Só Alta+ pausa para aprovação humana antes de implementar.',
+    uses: ['planner', 'v4-v5-equivalence', 'coding-standards', 'Jira'] },
+
+  { id: 'cmd-implement-feature', label: '/implement-feature', group: 'command',
+    kind: 'Comando',
+    desc: 'Segundo passo do fluxo de feature. Consome o plano aprovado em docs/plans/AP-XXXX.md como fonte de verdade. Após aprovação do commit, executa commit + push + abre (ou atualiza) o MR automaticamente via MCP GitLab. Apaga o plano ao final.',
+    uses: ['feature-dev', 'coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist', 'ui-impact-check', 'GitLab'] },
+
+  { id: 'cmd-fix-bug', label: '/fix-bug', group: 'command',
+    kind: 'Comando',
+    desc: 'Fluxo mais usado do repo — bugs são o workflow mais frequente do time. Aciona o bug-hunter, que produz RCA obrigatório (publicado no Jira imediatamente), aplica fix cirúrgico, valida via smoke test manual, e após aprovação executa commit + push + abre MR automaticamente.',
+    uses: ['bug-hunter', 'coding-standards', 'git-workflow', 'Jira', 'GitLab'] },
+
+  { id: 'cmd-fix-bug-laravel', label: '/fix-bug-laravel', group: 'command',
+    kind: 'Comando',
+    desc: 'Versão mais cautelosa do /fix-bug, usada quando o bug envolve schema MySQL compartilhado com o NestJS v5. Obriga consulta da skill migration-safety antes de qualquer ALTER/DROP/rename — uma migration errada pode quebrar v4 e v5 em produção simultaneamente.',
+    uses: ['bug-hunter', 'migration-safety', 'laravel-architecture', 'coding-standards', 'git-workflow', 'Jira', 'GitLab'] },
+
+  { id: 'cmd-review-mr', label: '/review-mr', group: 'command',
+    kind: 'Comando',
+    desc: 'Revisão local da branch pelo code-reviewer antes de abrir o MR. Produz relatório estruturado (Aprovado / Ressalvas / Bloqueado) proporcional ao tamanho do diff, commita arquivos esquecidos automaticamente, e abre (ou atualiza) o MR no GitLab sem perguntar sobre reviewer ou labels.',
+    uses: ['code-reviewer', 'coding-standards', 'security-checklist', 'GitLab'] },
+
+  { id: 'cmd-context-dump', label: '/context-dump', group: 'command',
+    kind: 'Comando',
+    desc: 'Salva um resumo estruturado do estado atual da sessão em docs/sessions/ para que a próxima sessão (sua ou de outro dev) retome exatamente de onde parou, sem re-explicar contexto ao Claude. Usado ao final de sessões longas. Não aciona nenhum agente.' },
+
+  // Agents
+  { id: 'agent-planner', label: 'planner', sublabel: 'opus', group: 'agent',
+    kind: 'Agente · Opus',
+    desc: 'Arquiteto sênior. Planeja features ANTES de qualquer código. Produz specs técnicas, mapeia arquivos afetados, identifica riscos e estima complexidade. Nunca escreve código. Classifica toda demanda em Baixa / Média / Alta / Muito Alta para calibrar o tamanho do plano.',
+    uses: ['v4-v5-equivalence', 'coding-standards', 'laravel-architecture'] },
+
+  { id: 'agent-feature-dev', label: 'feature-dev', sublabel: 'sonnet', group: 'agent',
+    kind: 'Agente · Sonnet',
+    desc: 'Implementador sênior. Executa features a partir de um plano técnico aprovado — nunca começa sem plano. Trabalha arquivo por arquivo, segue os coding standards, calibra esforço pela complexidade do plano, e faz scan dos arquivos vizinhos antes de editar para herdar convenções locais.',
+    uses: ['coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist', 'ui-impact-check', 'v4-v5-equivalence'] },
+
+  { id: 'agent-bug-hunter', label: 'bug-hunter', sublabel: 'sonnet', group: 'agent',
+    kind: 'Agente · Sonnet',
+    desc: 'Depurador sistemático. Investiga bugs até a causa raiz, documenta o RCA, corrige com precisão cirúrgica. Regra fundamental: NUNCA propõe correção antes de completar o RCA. Entender o problema é mais importante que resolver rápido — um fix sem RCA é um fix que volta.',
+    uses: ['coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist'] },
+
+  { id: 'agent-code-reviewer', label: 'code-reviewer', sublabel: 'opus', group: 'agent',
+    kind: 'Agente · Opus',
+    desc: 'Revisor sênior. Como o repo não tem linting, type-check, nem testes automatizados, este agente é a única linha de defesa antes do merge. Revisa com rigor proporcional ao tamanho do diff e produz relatório estruturado com bloqueadores, sugestões e pontos positivos.',
+    uses: ['coding-standards', 'security-checklist', 'laravel-architecture', 'migration-safety'] },
+
+  { id: 'agent-refactor-guide', label: 'refactor-guide', sublabel: 'opus', group: 'agent',
+    kind: 'Agente · Opus',
+    desc: 'Especialista em refatoração segura e incremental. Nunca faz big-bang rewrites — toda refatoração é decomposta em passos pequenos onde cada passo funciona sozinho e pode ser revertido independentemente. Toda refatoração no v4 deve SIMPLIFICAR para facilitar a migração futura para v5.',
+    uses: ['coding-standards', 'git-workflow', 'laravel-architecture', 'v4-v5-equivalence'] },
+
+  { id: 'agent-docs-writer', label: 'docs-writer', sublabel: 'haiku', group: 'agent',
+    kind: 'Agente · Haiku',
+    desc: 'Technical writer. Gera e mantém documentação técnica — READMEs, PHPDoc, Swagger/OpenAPI, ADRs, changelogs. Não corrige bugs, não refatora, não implementa. Escreve para duas audiências: devs internos e clientes/integradores enterprise.',
+    uses: ['module-documentation'] },
+
+  // Skills
+  { id: 'skill-coding-standards', label: 'coding-standards', group: 'skill',
+    kind: 'Skill',
+    desc: 'Base de padrões do repo: indentação 2 espaços, naming em inglês, mensagens de validação em pt-BR, transações em multi-write, Sentry em todo catch, SQL bindings obrigatório, proibições (echo / var_dump / die / exit em produção), sem globais window.* em JS, comentários parcimoniosos.' },
+
+  { id: 'skill-git-workflow', label: 'git-workflow', group: 'skill',
+    kind: 'Skill',
+    desc: 'Convenções de Git do time: nomeação de branch (AP-XXXX a partir de homologacao, hotfix de master), formato de commit (fix/feat/chore em português), processo de MR, proporcionalidade dos artefatos (RCA, MR body, comentário Jira) pelo tamanho do diff, defaults do MR (sem reviewer e sem labels).' },
+
+  { id: 'skill-laravel-architecture', label: 'laravel-architecture', group: 'skill',
+    kind: 'Skill',
+    desc: 'Referência de arquitetura: camadas Controller → Service → Model, multi-database (7+ conexões MySQL), middleware chain (auth, checkSession, checkOrg), padrões de roteamento com orgDinamica(), anti-patterns conhecidos (fat controllers, new ServiceClass(), DB::connection() direto no controller).' },
+
+  { id: 'skill-migration-safety', label: 'migration-safety', group: 'skill',
+    kind: 'Skill · Crítica',
+    desc: 'A skill mais crítica do repositório. MySQL compartilhado entre Laravel v4 e NestJS v5 em produção. Uma migration errada pode quebrar os dois lados simultaneamente. Checklist obrigatório para toda migration: ownership da tabela (v4-only / v5-only / compartilhada), operações proibidas, impacto cruzado.' },
+
+  { id: 'skill-security-checklist', label: 'security-checklist', group: 'skill',
+    kind: 'Skill',
+    desc: 'Checklist de segurança obrigatório antes de todo MR: isolamento multi-tenant (classe de bug mais grave neste repo), SQL injection, auth/authz, validação de input, gestão de secrets, zonas vulneráveis conhecidas. Cada item tem que ser PASS ou ter justificativa explícita para SKIP.' },
+
+  { id: 'skill-v4-v5-equivalence', label: 'v4-v5-equivalence', group: 'skill',
+    kind: 'Skill',
+    desc: 'Mapa de equivalência entre endpoints v4 (Laravel) e v5 (NestJS). Consulta obrigatória antes de criar, modificar ou remover qualquer endpoint, controller ou rota, para garantir que mudanças não criem inconsistências entre as duas versões coexistindo.' },
+
+  { id: 'skill-ui-impact-check', label: 'ui-impact-check', group: 'skill',
+    kind: 'Skill',
+    desc: 'Gate obrigatório entre "implementar" e "validação final" sempre que o diff toca .blade.php, .js, .css, .vue ou qualquer asset frontend. Detecta colisões com componentes adjacentes (dropdowns Bootstrap aninhados, ids duplicados, listeners globais sem namespace, problemas de alinhamento inline/block).' },
+
+  { id: 'skill-module-documentation', label: 'module-documentation', group: 'skill',
+    kind: 'Skill',
+    desc: 'Gera documentação .md de módulos da plataforma para a knowledge base da HIRA (assistente de IA do Hitfy, que ajuda usuários a navegar o portal). 100% autônoma — não faz perguntas, infere tudo do código-fonte. Informação precisa estar co-localizada porque o vector search retorna chunks isolados.' },
+
+  // Hooks
+  { id: 'hook-check-secrets', label: 'check-secrets', group: 'hook',
+    kind: 'Hook · PreToolUse',
+    desc: 'Intercepta TODO comando Bash antes de executar. Bloqueia se detectar valores que parecem secrets reais: chaves OpenAI (sk-...), tokens GitHub (ghp_...), JWTs (eyJ...), blobs base64/hex com 32+ caracteres atribuídos a variáveis sensíveis (API_KEY, PASSWORD, TOKEN, SECRET, etc.).' },
+
+  { id: 'hook-check-destructive', label: 'check-destructive', group: 'hook',
+    kind: 'Hook · PreToolUse',
+    desc: 'Intercepta TODO comando Bash antes de executar. Bloqueia operações destrutivas: git push --force / -f (sugere --force-with-lease), git reset --hard, git clean -f, rm -rf em paths sensíveis. Se realmente necessário, o dev executa manualmente no terminal fora do Claude.' },
+
+  { id: 'hook-session-end', label: 'session-end', group: 'hook',
+    kind: 'Hook · Stop',
+    desc: 'Roda ao encerrar a sessão. Toca uma sequência de beeps no Windows (avisa que o Claude terminou de trabalhar) e imprime lembrete para rodar /context-dump quando a sessão for longa, para não perder o contexto mental do trabalho.' },
+
+  // MCP
+  { id: 'mcp-gitlab', label: 'GitLab', sublabel: 'mcp', group: 'mcp',
+    kind: 'MCP externo',
+    desc: 'Integração com o GitLab self-hosted do time (192.168.10.124:2080). Permite que os comandos abram e atualizem merge requests, publiquem o relatório do code-reviewer como primeiro comentário do MR, busquem diffs de branches, listem labels e reviewers — tudo sem tirar o dev do Claude Code.' },
+
+  { id: 'mcp-jira', label: 'Jira', sublabel: 'mcp', group: 'mcp',
+    kind: 'MCP externo',
+    desc: 'Integração com o Jira do time (prefixo AP-). Permite que os comandos busquem detalhes da issue para contexto do bug/feature, publiquem o RCA do bug-hunter imediatamente como comentário ADF estruturado, e movam o status do ticket (ex: Em andamento → Em Revisão) conforme o fluxo avança.' },
+
+  // Outputs
+  { id: 'out-mr', label: 'Merge Request', group: 'output',
+    kind: 'Entregável',
+    desc: 'MR aberto ou atualizado no GitLab automaticamente pelos comandos /implement-feature, /fix-bug*, /review-mr. Default do time: sem reviewer, sem labels, assignee = autor. Descrição e commit 100% em português brasileiro, proporcional ao tamanho do diff.' },
+
+  { id: 'out-rca', label: 'RCA no Jira', group: 'output',
+    kind: 'Entregável',
+    desc: 'Root Cause Analysis publicado como comentário ADF estruturado no ticket AP-XXXX imediatamente após o bug-hunter retornar o relatório — ANTES da validação humana do fix. Calibrado pelo tamanho: compacto para <20 linhas, completo para schema change ou isolamento multi-tenant.' }
+];
+
+// ============================================================
+// CHIP LOOKUP — maps a chip label (or <code> text in flow descs) to its node
+// Used to render colored chips with icons in the details panel
+// ============================================================
+const CHIP_LOOKUP = {};
+NODES.forEach(n => {
+  CHIP_LOOKUP[n.label] = { group: n.group, color: GROUPS[n.group].color, id: n.id };
+});
+// A few convenient aliases (chip text in the data → actual node label)
+CHIP_LOOKUP['Jira']   = CHIP_LOOKUP['Jira']   || { group: 'mcp', color: GROUPS.mcp.color, id: 'mcp-jira' };
+CHIP_LOOKUP['GitLab'] = CHIP_LOOKUP['GitLab'] || { group: 'mcp', color: GROUPS.mcp.color, id: 'mcp-gitlab' };
+
+// ============================================================
+// FLOWS — end-to-end timelines for commands & agents
+// ============================================================
+const FLOWS = {
+  'cmd-plan-feature': [
+    { title: 'Usuário chama', desc: '<code>/plan-feature AP-1234</code> (ou link do Jira, ou descrição livre)' },
+    { title: 'Busca contexto no Jira', desc: 'Planner consulta o ticket via MCP Jira e lê descrição, comentários e critérios de aceite' },
+    { title: 'Consulta v4-v5-equivalence', desc: 'Obrigatório: se o módulo já migrou pro NestJS v5, o plano redireciona o trabalho — este repo não se aplica mais' },
+    { title: 'Classificação de complexidade', desc: 'GATE obrigatório: Baixa / Média / Alta / Muito Alta. Define o formato do plano e o fluxo de aprovação' },
+    { title: 'Gera plano calibrado', desc: 'Salva em <code>docs/plans/AP-XXXX.md</code> — enxuto para Baixa, completo com riscos para Média+, com rollback para Alta+' },
+    { title: 'Publica resumo no Jira', desc: 'Comentário ADF nativo com o plano e move ticket para "Em andamento"' },
+    { title: 'Baixa/Média → auto', desc: 'Delega direto para <code>/implement-feature</code>, sem pausa para aprovação humana' },
+    { title: 'Alta/Muito Alta → pausa', desc: 'Espera aprovação humana explícita antes de liberar a implementação' }
+  ],
+
+  'cmd-implement-feature': [
+    { title: 'Usuário chama', desc: '<code>/implement-feature AP-1234</code>' },
+    { title: 'Plano on-demand', desc: 'Se <code>docs/plans/AP-XXXX.md</code> não existe, aciona <code>/plan-feature</code> automaticamente' },
+    { title: 'Valida plano contra código', desc: 'Feature-dev confere que arquivos, rotas e models referenciados no plano ainda existem' },
+    { title: 'Scan dos vizinhos', desc: 'Lê 2-3 arquivos adjacentes pra herdar as convenções locais antes de editar' },
+    { title: 'Implementação arquivo a arquivo', desc: 'Segue <code>coding-standards</code> e <code>laravel-architecture</code>. Calibra esforço pela complexidade do plano' },
+    { title: 'Gate ui-impact-check', desc: 'Se tocou <code>.blade/.js/.css/.vue</code>, valida colisões com vizinhos (dropdowns, ids, listeners globais) antes do smoke test' },
+    { title: 'Validação de sintaxe', desc: '<code>php -l</code> em cada arquivo PHP modificado · <code>node -c</code> em JS' },
+    { title: 'Texto de commit preparado', desc: '100% português brasileiro, calibrado pela complexidade. Aguarda aprovação do usuário' },
+    { title: 'Commit + push + MR', desc: 'Após aprovação, executa tudo automaticamente via MCP GitLab. Sem reviewer, sem labels' },
+    { title: 'Limpa o plano', desc: 'Apaga <code>docs/plans/AP-XXXX.md</code> — é artefato temporário, rastreabilidade fica no Jira e no commit' }
+  ],
+
+  'cmd-fix-bug': [
+    { title: 'Usuário chama', desc: '<code>/fix-bug AP-2803</code> · descrição livre · ou stack trace colado' },
+    { title: 'Busca contexto no Jira', desc: 'Bug-hunter lê o ticket via MCP Jira se recebeu um AP-XXXX' },
+    { title: 'Investigação da causa raiz', desc: 'Lê arquivos relevantes, reproduz mentalmente o bug. NÃO propõe correção ainda' },
+    { title: 'Produz RCA calibrado', desc: 'Compacto (&lt;20 linhas), padrão (20-100) ou completo (schema/multi-tenant)' },
+    { title: 'RCA publicado no Jira', desc: 'Comentário ADF imediato — ANTES da validação humana do fix, para registro rápido' },
+    { title: 'Fix cirúrgico', desc: 'Aplica correção mínima no arquivo identificado, sem tocar em nada adjacente' },
+    { title: 'Validação manual', desc: '<code>php -l</code> + smoke test descrito no RCA (este repo não tem testes automatizados)' },
+    { title: 'Aprovação do commit', desc: 'Apresenta texto do commit em português pra usuário aprovar' },
+    { title: 'Commit + push + MR', desc: 'Executa automaticamente via MCP GitLab após aprovação' }
+  ],
+
+  'cmd-fix-bug-laravel': [
+    { title: 'Usuário chama', desc: '<code>/fix-bug-laravel AP-2803</code>' },
+    { title: 'Busca contexto no Jira', desc: 'Bug-hunter lê o ticket via MCP Jira' },
+    { title: '⚠ Suspeita de schema change?', desc: 'Se sim, PARA. Consulta <code>migration-safety</code> inteira antes de escrever uma linha' },
+    { title: 'Identifica ownership da tabela', desc: 'v4-only (portal) · v5-only (hsh_micros) · compartilhada. Se compartilhada/v5, o risco é quebrar o NestJS em produção' },
+    { title: 'Investiga causa raiz', desc: 'Sem propor correção, respeitando a arquitetura em camadas Controller → Service → Model' },
+    { title: 'RCA publicado no Jira', desc: 'Com impacto cruzado v4/v5 explicitado quando aplicável' },
+    { title: 'Fix respeitando camadas', desc: 'Nunca <code>DB::connection()</code> em controller, nunca <code>new ServiceClass()</code>, nunca <code>echo json_encode()</code>' },
+    { title: 'Validação manual', desc: '<code>php -l</code> + smoke test em ambiente local (único disponível pra reprodução)' },
+    { title: 'Commit + push + MR', desc: 'Automático via MCP GitLab após aprovação do commit em português' }
+  ],
+
+  'cmd-review-mr': [
+    { title: 'Usuário chama', desc: '<code>/review-mr</code> na branch atual, ou <code>/review-mr AP-2803</code>' },
+    { title: 'Detecta base da branch', desc: '<code>homologacao</code> para features/bugs · <code>master</code> para hotfix' },
+    { title: 'Coleta o diff', desc: '<code>git diff homologacao...HEAD</code> + lista de arquivos alterados' },
+    { title: 'Lê arquivos completos', desc: 'Nunca revisa só o diff — precisa do contexto ao redor' },
+    { title: 'Aplica checklist', desc: '<code>coding-standards</code> + <code>security-checklist</code> + <code>migration-safety</code>. Cada item PASS/FAIL/SKIP/N/A' },
+    { title: 'Produz relatório', desc: 'Bloqueadores → Sugestões → Pontos positivos. Calibrado pelo tamanho do diff' },
+    { title: 'Commita pendências locais', desc: 'Se o diff tem arquivos não commitados, commita antes de abrir o MR' },
+    { title: 'Abre ou atualiza o MR', desc: 'Via MCP GitLab. Sem reviewer_ids, sem labels, assignee = autor (default do time)' },
+    { title: 'Publica relatório no MR', desc: 'Como primeiro comentário do merge request, auditável pelo revisor humano' }
+  ],
+
+  'cmd-context-dump': [
+    { title: 'Usuário chama', desc: '<code>/context-dump</code> (opcionalmente com slug ou AP-XXXX)' },
+    { title: 'Coleta automática do repo', desc: '<code>git rev-parse</code>, <code>git log -5</code>, <code>git status --short</code> em paralelo' },
+    { title: 'Monta resumo estruturado', desc: 'O que foi feito, por quê, o que falta. Escrito para outros devs do time, não só pra retomada individual' },
+    { title: 'Salva em <code>docs/sessions/</code>', desc: 'Arquivo Markdown versionável. Próxima sessão abre e retoma sem re-explicar contexto' }
+  ],
+
+  'agent-planner': [
+    { title: 'Regra fundamental', desc: 'NUNCA escreve, edita ou gera código. Só planeja — se o usuário pedir pra implementar, recusa e explica' },
+    { title: 'Captura contexto', desc: 'Texto direto na conversa ou link do Jira (busca via MCP Jira)' },
+    { title: 'GATE de complexidade', desc: 'Passo 2 obrigatório: classifica em Baixa/Média/Alta/Muito Alta ANTES de qualquer exploração' },
+    { title: 'Explora código afetado', desc: 'Glob + Grep pra mapear arquivos, rotas, models. Lê o que precisar pra não planejar no vácuo' },
+    { title: 'Produz plano calibrado', desc: 'Formato e profundidade seguem a complexidade. Nunca infla plano "só por garantia"' },
+    { title: 'Salva handoff', desc: '<code>docs/plans/AP-XXXX.md</code> como artefato temporário — o plano é descartável' },
+    { title: 'Publica no Jira', desc: 'Comentário ADF nativo, move ticket para "Em andamento" (transition 31)' }
+  ],
+
+  'agent-feature-dev': [
+    { title: 'Regra fundamental', desc: 'NUNCA começa sem plano. Se o usuário pedir pra implementar sem plano, recusa e sugere <code>planner</code>' },
+    { title: 'Valida plano', desc: 'Lê plano inteiro, confere arquivos/rotas/models referenciados contra o código atual' },
+    { title: 'Scan de padrões vizinhos', desc: 'Antes de qualquer Edit, lê 2-3 arquivos adjacentes pra herdar convenções locais (evita premissa errada do plano)' },
+    { title: 'Implementa arquivo por arquivo', desc: 'Segue a "Ordem de implementação" do plano. Sem saltos, sem atalhos' },
+    { title: 'Calibra esforço', desc: 'Baixa = direto, sem TodoWrite · Média = TodoWrite padrão · Alta+ = TodoWrite completo + plano com checkboxes' },
+    { title: 'Validação de sintaxe', desc: '<code>php -l</code> a cada arquivo PHP · <code>node -c</code> em JS · nunca roda <code>phpunit</code> (repo não tem testes)' },
+    { title: 'Mensagem de commit', desc: '100% português brasileiro, calibrada pelo tamanho do diff (nunca infla)' }
+  ],
+
+  'agent-bug-hunter': [
+    { title: 'Regra fundamental', desc: 'NUNCA propõe correção antes de completar o RCA. Entender o problema > resolver rápido' },
+    { title: 'Recebe o bug', desc: 'Descrição textual · link do Jira (MCP) · stack trace · ou combinação' },
+    { title: 'Reproduz mentalmente', desc: 'Lê os arquivos relevantes, traça o caminho da execução até o ponto do erro' },
+    { title: 'Localiza causa raiz', desc: 'Não confunde sintoma com causa. Grep por padrões similares em outros arquivos' },
+    { title: 'Escreve RCA calibrado', desc: 'Trivial (3-5 linhas) · Padrão (template completo, seções curtas) · Completo (riscos e impacto expandidos)' },
+    { title: 'Define smoke test manual', desc: 'Passos exatos pra reproduzir o cenário do bug e confirmar que agora funciona' },
+    { title: 'Fix cirúrgico', desc: 'Correção mínima, sem refatorações oportunistas, sem tocar em zonas legadas intocáveis' }
+  ],
+
+  'agent-code-reviewer': [
+    { title: 'Contexto: única linha de defesa', desc: 'Repo sem linting, sem type-check, sem testes automatizados, sem checks no CI. Revisa com rigor proporcional' },
+    { title: 'Identifica o escopo', desc: 'Branch/MR → <code>git diff main...HEAD</code> · arquivos específicos → lê cada um · módulo → Glob + leitura' },
+    { title: 'Coleta contexto', desc: 'Lê cada arquivo completo (não só o diff). Verifica <code>git log</code> recente pra entender mudanças anteriores' },
+    { title: 'Aplica checklist completo', desc: 'coding-standards + security-checklist + migration-safety. Cada item PASS/FAIL/SKIP/N/A' },
+    { title: 'Grep por padrões similares', desc: 'Se achou um problema, verifica se existe em outros arquivos (informativo, não bloqueia)' },
+    { title: 'Produz relatório estruturado', desc: 'Bloqueadores (B1-B6) · Sugestões (S1-S5) · Pontos positivos. Sem seções vazias' },
+    { title: 'Veredito final', desc: 'Aprovado · Aprovado com ressalvas · Bloqueado. Calibrado pelo tamanho do diff' }
+  ],
+
+  'agent-refactor-guide': [
+    { title: 'Regra fundamental', desc: 'NUNCA big-bang rewrites. Decompõe tudo em passos pequenos deploy-safe e reversíveis' },
+    { title: 'Entende motivação', desc: 'Bug recorrente? Preparação pra v5? Legibilidade? Performance? A resposta muda a estratégia' },
+    { title: 'Mapeia dependências', desc: 'Antes de tocar em qualquer coisa — Grep por usos, imports, rotas, models relacionados' },
+    { title: 'Propõe passos incrementais', desc: 'Cada passo funciona sozinho, não quebra nada existente, pode ser revertido independentemente' },
+    { title: 'Simplifica, nunca sofistica', desc: 'Foco é facilitar migração pra v5 — não construir arquitetura perfeita no legacy' },
+    { title: 'Evita zonas condenadas', desc: 'Módulos com previsão de migração iminente não merecem refactor pesado' }
+  ],
+
+  'agent-docs-writer': [
+    { title: 'Não corrige bugs, não refatora', desc: 'Foco exclusivo: documentação técnica. Se precisar mexer em código, delega' },
+    { title: 'Duas audiências', desc: 'Devs internos do Hitfy · clientes e integradores enterprise. Escreve diferente pra cada um' },
+    { title: 'Tipos de doc', desc: 'README · PHPDoc · Swagger/OpenAPI · ADRs · Changelog · Docs de módulo (knowledge base da HIRA)' },
+    { title: 'Infere do código', desc: 'Para docs de módulo (skill module-documentation), não pergunta nada — lê o código-fonte e produz' }
+  ],
+
+  'mcp-jira': [
+    { title: 'Busca issue', desc: '<code>jira_get /rest/api/3/issue/AP-XXXX</code> — retorna descrição, status, comentários, critérios de aceite' },
+    { title: 'Publica comentário ADF', desc: 'RCA do bug-hunter postado IMEDIATAMENTE após o relatório, antes da validação humana do fix' },
+    { title: 'Move status do ticket', desc: 'Transition 31 (Em andamento) · 61 (Em revisão). Claude nunca move para outros status (Done, Cancelled, etc.)' },
+    { title: 'Formato obrigatório', desc: 'Todo comentário em ADF nativo (<code>type: doc / version 1 / content[]</code>), nunca string pura' }
+  ],
+
+  'mcp-gitlab': [
+    { title: 'Lista MRs existentes', desc: '<code>list_merge_requests</code> filtrando pela branch atual antes de decidir abrir ou atualizar' },
+    { title: 'Abre novo MR', desc: '<code>create_merge_request</code> com título, descrição, source/target branch. Sem reviewer, sem labels (default do time)' },
+    { title: 'Atualiza MR existente', desc: 'Se já existe MR aberto pra branch, atualiza descrição com o novo relatório' },
+    { title: 'Publica relatório', desc: 'Comentário no MR com o relatório do code-reviewer, primeira coisa que o revisor humano lê' },
+    { title: 'Busca diffs', desc: '<code>get_merge_request_diffs</code> + <code>get_merge_request_file_diff</code> pra revisar mudanças específicas' }
+  ],
+
+  'hook-check-secrets': [
+    { title: 'Intercepta todo Bash', desc: 'Roda em PreToolUse — antes do comando executar' },
+    { title: 'Detecta secret patterns', desc: 'OpenAI (<code>sk-...</code>) · GitHub (<code>ghp_...</code>) · JWT (<code>eyJ...</code>) · blobs base64/hex 32+ chars' },
+    { title: 'Casa com contexto sensível', desc: 'Só bloqueia quando o valor aparece após variáveis como <code>API_KEY</code>, <code>PASSWORD</code>, <code>TOKEN</code>, <code>SECRET</code>' },
+    { title: 'Bloqueia com exit 2', desc: 'Comando nem chega a rodar. Dev recebe mensagem explicando que deve usar <code>.env</code>' }
+  ],
+
+  'hook-check-destructive': [
+    { title: 'Intercepta todo Bash', desc: 'Roda em PreToolUse — antes do comando executar' },
+    { title: 'Bloqueia git --force', desc: '<code>git push --force</code> / <code>-f</code> → sugere <code>--force-with-lease</code>' },
+    { title: 'Bloqueia git reset --hard', desc: 'Sugere <code>git stash</code> ou checkout de arquivos específicos' },
+    { title: 'Bloqueia git clean -f', desc: 'Apaga arquivos não versionados sem recuperação possível' },
+    { title: 'Escape hatch', desc: 'Se realmente necessário, o dev executa manualmente no terminal, fora do Claude' }
+  ],
+
+  'hook-session-end': [
+    { title: 'Roda em Stop', desc: 'Disparado ao encerrar a sessão do Claude Code' },
+    { title: 'Beeps no Windows', desc: 'Sequência de tons via PowerShell — avisa que o Claude terminou' },
+    { title: 'Lembrete de context-dump', desc: 'Imprime aviso pra rodar <code>/context-dump</code> se a sessão foi longa' }
+  ]
+};
+
+const LINKS = [
+  // User → Commands
+  { source: 'user', target: 'cmd-plan-feature',      type: 'call' },
+  { source: 'user', target: 'cmd-implement-feature', type: 'call' },
+  { source: 'user', target: 'cmd-fix-bug',           type: 'call' },
+  { source: 'user', target: 'cmd-fix-bug-laravel',   type: 'call' },
+  { source: 'user', target: 'cmd-review-mr',         type: 'call' },
+  { source: 'user', target: 'cmd-context-dump',      type: 'call' },
+
+  // Command → Agent
+  { source: 'cmd-plan-feature',      target: 'agent-planner',       type: 'invoke' },
+  { source: 'cmd-implement-feature', target: 'agent-feature-dev',   type: 'invoke' },
+  { source: 'cmd-fix-bug',           target: 'agent-bug-hunter',    type: 'invoke' },
+  { source: 'cmd-fix-bug-laravel',   target: 'agent-bug-hunter',    type: 'invoke' },
+  { source: 'cmd-review-mr',         target: 'agent-code-reviewer', type: 'invoke' },
+
+  // Command auto-delegation
+  { source: 'cmd-plan-feature', target: 'cmd-implement-feature', type: 'auto' },
+
+  // Agent → Skill (consult)
+  { source: 'agent-planner', target: 'skill-v4-v5-equivalence',    type: 'consult' },
+  { source: 'agent-planner', target: 'skill-coding-standards',     type: 'consult' },
+  { source: 'agent-planner', target: 'skill-laravel-architecture', type: 'consult' },
+
+  { source: 'agent-feature-dev', target: 'skill-coding-standards',     type: 'consult' },
+  { source: 'agent-feature-dev', target: 'skill-laravel-architecture', type: 'consult' },
+  { source: 'agent-feature-dev', target: 'skill-git-workflow',         type: 'consult' },
+  { source: 'agent-feature-dev', target: 'skill-migration-safety',     type: 'consult' },
+  { source: 'agent-feature-dev', target: 'skill-security-checklist',   type: 'consult' },
+  { source: 'agent-feature-dev', target: 'skill-ui-impact-check',      type: 'consult' },
+  { source: 'agent-feature-dev', target: 'skill-v4-v5-equivalence',    type: 'consult' },
+
+  { source: 'agent-bug-hunter', target: 'skill-coding-standards',     type: 'consult' },
+  { source: 'agent-bug-hunter', target: 'skill-laravel-architecture', type: 'consult' },
+  { source: 'agent-bug-hunter', target: 'skill-git-workflow',         type: 'consult' },
+  { source: 'agent-bug-hunter', target: 'skill-migration-safety',     type: 'consult' },
+  { source: 'agent-bug-hunter', target: 'skill-security-checklist',   type: 'consult' },
+
+  { source: 'agent-code-reviewer', target: 'skill-coding-standards',     type: 'consult' },
+  { source: 'agent-code-reviewer', target: 'skill-security-checklist',   type: 'consult' },
+  { source: 'agent-code-reviewer', target: 'skill-laravel-architecture', type: 'consult' },
+  { source: 'agent-code-reviewer', target: 'skill-migration-safety',     type: 'consult' },
+
+  { source: 'agent-refactor-guide', target: 'skill-coding-standards',     type: 'consult' },
+  { source: 'agent-refactor-guide', target: 'skill-git-workflow',         type: 'consult' },
+  { source: 'agent-refactor-guide', target: 'skill-laravel-architecture', type: 'consult' },
+  { source: 'agent-refactor-guide', target: 'skill-v4-v5-equivalence',    type: 'consult' },
+
+  { source: 'agent-docs-writer', target: 'skill-module-documentation', type: 'consult' },
+
+  // Agent → MCP
+  { source: 'agent-planner',       target: 'mcp-jira',   type: 'external' },
+  { source: 'agent-feature-dev',   target: 'mcp-gitlab', type: 'external' },
+  { source: 'agent-bug-hunter',    target: 'mcp-jira',   type: 'external' },
+  { source: 'agent-bug-hunter',    target: 'mcp-gitlab', type: 'external' },
+  { source: 'agent-code-reviewer', target: 'mcp-gitlab', type: 'external' },
+
+  // MCP → Output
+  { source: 'mcp-gitlab', target: 'out-mr',  type: 'produce' },
+  { source: 'mcp-jira',   target: 'out-rca', type: 'produce' },
+
+  // Hooks guard the user (intercept)
+  { source: 'hook-check-secrets',     target: 'user', type: 'guard' },
+  { source: 'hook-check-destructive', target: 'user', type: 'guard' },
+  { source: 'hook-session-end',       target: 'cmd-context-dump', type: 'guard' }
+];
+
+// ============================================================
+// D3 RENDER
+// ============================================================
+const svg = d3.select('#graph');
+const width  = () => window.innerWidth;
+const height = () => window.innerHeight;
+
+svg.attr('width', width()).attr('height', height());
+
+// ============================================================
+// EDGE STYLING — color + shape per relationship type
+// ============================================================
+const EDGE_CONFIG = {
+  call:     { label: 'Chamada do usuário',   color: 'rgba(167, 139, 250, 0.55)', active: 'rgba(167, 139, 250, 1)', dashed: false },
+  invoke:   { label: 'Comando → agente',     color: 'rgba(96, 165, 250, 0.65)',  active: 'rgba(96, 165, 250, 1)',  dashed: false },
+  auto:     { label: 'Auto-delegação',       color: 'rgba(96, 165, 250, 0.75)',  active: 'rgba(96, 165, 250, 1)',  dashed: true  },
+  consult:  { label: 'Agente → skill',       color: 'rgba(52, 211, 153, 0.55)',  active: 'rgba(52, 211, 153, 1)',  dashed: false },
+  external: { label: 'Integração MCP',       color: 'rgba(192, 132, 252, 0.6)',  active: 'rgba(192, 132, 252, 1)', dashed: false },
+  produce:  { label: 'Produz entregável',    color: 'rgba(148, 163, 184, 0.6)',  active: 'rgba(203, 213, 225, 1)', dashed: false },
+  guard:    { label: 'Hook (proteção)',      color: 'rgba(251, 191, 36, 0.7)',   active: 'rgba(251, 191, 36, 1)',  dashed: true  }
+};
+
+const defs = svg.append('defs');
+
+// Icon symbols — define once, reuse via <use href="#icon-xxx">
+Object.entries(ICONS).forEach(([key, paths]) => {
+  defs.append('symbol')
+    .attr('id', `icon-${key}`)
+    .attr('viewBox', '0 0 24 24')
+    .attr('fill', 'none')
+    .attr('stroke', 'currentColor')
+    .attr('stroke-width', 2)
+    .attr('stroke-linecap', 'round')
+    .attr('stroke-linejoin', 'round')
+    .html(paths);
+});
+
+// One arrow marker per edge type (default + active variants).
+// refX = 8 aligns the arrow tip with the end of the line, so when we shorten
+// each link to stop at the target node's border, the arrow tip sits at the
+// border too (showing the direction of the connection).
+Object.entries(EDGE_CONFIG).forEach(([type, cfg]) => {
+  [['', cfg.color], ['-active', cfg.active]].forEach(([suffix, fill]) => {
+    defs.append('marker')
+      .attr('id', `arrow-${type}${suffix}`)
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 8)
+      .attr('refY', 0)
+      .attr('markerWidth', 7)
+      .attr('markerHeight', 7)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-4L8,0L0,4')
+      .attr('fill', fill);
+  });
+});
+
+// Single shared "dim" arrow used when a link is faded by hover/search/tour
+defs.append('marker')
+  .attr('id', 'arrow-dim')
+  .attr('viewBox', '0 -5 10 10')
+  .attr('refX', 8)
+  .attr('refY', 0)
+  .attr('markerWidth', 7)
+  .attr('markerHeight', 7)
+  .attr('orient', 'auto')
+  .append('path')
+  .attr('d', 'M0,-4L8,0L0,4')
+  .attr('fill', 'rgba(148, 163, 184, 0.08)');
+
+// Zoom/pan container
+const zoomG = svg.append('g').attr('class', 'zoom-container');
+
+const zoomBehavior = d3.zoom()
+  .scaleExtent([0.3, 2.5])
+  .on('zoom', (event) => zoomG.attr('transform', event.transform));
+svg.call(zoomBehavior);
+
+// Clone nodes/links so simulation doesn't mutate originals
+const nodesCopy = NODES.map(d => ({ ...d }));
+const linksCopy = LINKS.map(d => ({ ...d }));
+
+// Pin the user node to the viewport center — it's the anchor of everything
+function pinUserToCenter() {
+  const u = nodesCopy.find(n => n.id === 'user');
+  if (u) {
+    u.fx = window.innerWidth / 2;
+    u.fy = window.innerHeight / 2;
+  }
+}
+pinUserToCenter();
+
+// Radial layout — the user sits at the center (pinned via fx/fy) and every
+// other group orbits it on a ring. forceRadial attracts each node to its
+// ring radius from the center, and the charge force spreads them angularly.
+const GROUP_RING_RADIUS = {
+  user:    0,     // pinned at center
+  command: 170,   // inner ring — entry points
+  agent:   275,   // middle ring — the core workers
+  hook:    320,   // outer ring — guards
+  mcp:     335,   // outer ring — integrations
+  skill:   350,   // outer ring — knowledge base
+  output:  420    // outermost — deliverables
+};
+
+// Pre-distribute nodes angularly around the center BEFORE the simulation starts.
+// Without this, d3.forceSimulation places nodes via phyllotaxis around (0,0)
+// (top-left corner) and the whole network collapses to that side before the
+// radial force gets a chance to spread them out.
+// Each group gets a distinct 60° sector around the clock, with nodes spread
+// within that sector, so the whole network orbits the centered user node.
+function spreadNodesInitially() {
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  // 6 groups × 60° = 360° → evenly around the user, starting from 12 o'clock.
+  // In SVG coords, angle 0 = 3 o'clock, π/2 = 6 o'clock, π = 9 o'clock, 3π/2 = 12 o'clock.
+  const groupCenterAngle = {
+    command: 3 * Math.PI / 2,    // 12 o'clock — entry points on top
+    agent:   11 * Math.PI / 6,   // 2 o'clock — workers upper-right
+    skill:    Math.PI / 6,       // 4 o'clock — knowledge base lower-right
+    mcp:      Math.PI / 2,       // 6 o'clock — integrations at bottom
+    output:   5 * Math.PI / 6,   // 8 o'clock — deliverables lower-left
+    hook:     7 * Math.PI / 6    // 10 o'clock — guards upper-left
+  };
+  const byGroup = {};
+  nodesCopy.forEach(n => {
+    if (n.id === 'user') return;
+    (byGroup[n.group] = byGroup[n.group] || []).push(n);
+  });
+  Object.entries(byGroup).forEach(([group, groupNodes]) => {
+    const r = GROUP_RING_RADIUS[group] || 280;
+    const centerAngle = groupCenterAngle[group] || 0;
+    // Each group fans across a ~55° sector centered on its clock position
+    const sector = Math.PI * 0.3;
+    const n = groupNodes.length;
+    groupNodes.forEach((node, i) => {
+      const offset = n > 1 ? (i / (n - 1) - 0.5) * sector : 0;
+      const angle = centerAngle + offset;
+      node.x = cx + Math.cos(angle) * r;
+      node.y = cy + Math.sin(angle) * r;
+      node.vx = 0;
+      node.vy = 0;
+    });
+  });
+  // User stays at center
+  const u = nodesCopy.find(n => n.id === 'user');
+  if (u) { u.x = cx; u.y = cy; u.vx = 0; u.vy = 0; }
+}
+spreadNodesInitially();
+
+// Simulation — radial layout orbiting the pinned user node. Forces are
+// intentionally soft: just enough to keep nodes on their rings, with plenty
+// of angular freedom so the layout feels spread out.
+const simulation = d3.forceSimulation(nodesCopy)
+  .force('link',
+    d3.forceLink(linksCopy)
+      .id(d => d.id)
+      .distance(l => {
+        if (l.type === 'consult') return 120;
+        if (l.type === 'invoke')  return 140;
+        if (l.type === 'call')    return 160;
+        return 130;
+      })
+      .strength(0.08)
+  )
+  .force('charge', d3.forceManyBody().strength(-480))
+  .force('collide', d3.forceCollide().radius(d => GROUPS[d.group].radius + 20).strength(0.95))
+  .force('radial',
+    d3.forceRadial(
+      d => GROUP_RING_RADIUS[d.group] || 280,
+      window.innerWidth / 2,
+      window.innerHeight / 2
+    ).strength(d => d.group === 'user' ? 0 : 0.14)
+  )
+  .alphaDecay(0.028)
+  .velocityDecay(0.5);
+
+// Adjacency map (for highlight)
+const adjacency = new Map();
+nodesCopy.forEach(n => adjacency.set(n.id, new Set([n.id])));
+linksCopy.forEach(l => {
+  adjacency.get(l.source.id || l.source).add(l.target.id || l.target);
+  adjacency.get(l.target.id || l.target).add(l.source.id || l.source);
+});
+
+// ============ CENTRALITY ============
+// Compute connection count per node (excluding self) for the heat map view.
+const CENTRALITY = (() => {
+  const counts = {};
+  nodesCopy.forEach(n => { counts[n.id] = (adjacency.get(n.id)?.size || 1) - 1; });
+  const values = Object.values(counts);
+  return {
+    counts,
+    min: Math.min(...values),
+    max: Math.max(...values)
+  };
+})();
+
+function centralityT(nodeId) {
+  const c = CENTRALITY.counts[nodeId];
+  const range = CENTRALITY.max - CENTRALITY.min;
+  return range === 0 ? 0.5 : (c - CENTRALITY.min) / range;
+}
+
+// Heat color scale — d3.interpolateTurbo clamped to avoid the darkest ends
+function heatColor(t) {
+  return d3.interpolateTurbo(0.18 + t * 0.78);
+}
+
+// ============ LINKS ============
+const link = zoomG.append('g')
+  .attr('class', 'links')
+  .selectAll('path')
+  .data(linksCopy)
+  .join('path')
+    .attr('class', 'link')
+    .attr('stroke', d => EDGE_CONFIG[d.type].color)
+    .attr('stroke-dasharray', d => EDGE_CONFIG[d.type].dashed ? '4 4' : null)
+    .attr('stroke-width', 1)
+    .attr('stroke-opacity', 1)
+    .attr('marker-end', d => `url(#arrow-${d.type})`);
+
+// Helpers for interactive link state
+function resetLinks() {
+  link
+    .attr('stroke', l => EDGE_CONFIG[l.type].color)
+    .attr('stroke-opacity', 1)
+    .attr('stroke-width', 1)
+    .attr('marker-end', l => `url(#arrow-${l.type})`);
+}
+function dimAllLinks() {
+  link
+    .attr('stroke-opacity', 0.08)
+    .attr('marker-end', 'url(#arrow-dim)');
+}
+function highlightLinks(predicate) {
+  link
+    .attr('stroke', l => predicate(l) ? EDGE_CONFIG[l.type].active : EDGE_CONFIG[l.type].color)
+    .attr('stroke-opacity', l => predicate(l) ? 1 : 0.08)
+    .attr('stroke-width', l => predicate(l) ? 1.8 : 1)
+    .attr('marker-end', l => predicate(l) ? `url(#arrow-${l.type}-active)` : 'url(#arrow-dim)');
+}
+
+// Store a direct reference to each link's path DOM element for fast lookups
+link.each(function(l) { l.__pathEl = this; });
+
+// ============ DATA PACKETS — particles flowing along edges ============
+// Rendered in a layer between links and nodes so nodes appear on top.
+const packetLayer = zoomG.append('g').attr('class', 'packet-layer');
+let packets = [];
+let packetIdCounter = 0;
+let lastPacketSpawn = 0;
+
+// Predicate that decides which edges can spawn packets. null = all edges.
+// Used by hover (only edges touching the hovered node) and search (only edges
+// where both endpoints match the filter).
+let activePacketPredicate = null;
+
+function setActivePacketPredicate(predicate) {
+  activePacketPredicate = predicate;
+  if (predicate) {
+    // Instantly drop in-flight packets that no longer qualify
+    packets = packets.filter(p => predicate(p.link));
+  }
+}
+
+function canRunPackets() {
+  return !document.body.classList.contains('tour-mode')
+      && !document.body.classList.contains('animating');
+}
+
+function spawnPacket(linkData) {
+  if (!linkData || !linkData.__pathEl) return;
+  if (activePacketPredicate && !activePacketPredicate(linkData)) return;
+  const cfg = EDGE_CONFIG[linkData.type] || EDGE_CONFIG.invoke;
+  packets.push({
+    id: ++packetIdCounter,
+    link: linkData,
+    pathEl: linkData.__pathEl,
+    color: cfg.active,
+    startTime: performance.now(),
+    duration: 1700 + Math.random() * 1000,  // 1.7s - 2.7s
+    size: 2.2 + Math.random() * 1.2,         // 2.2 - 3.4 px
+  });
+}
+
+function updatePackets(now) {
+  // Spawn new packets at a steady rate, picking random edges
+  if (canRunPackets() && now - lastPacketSpawn > 160) {
+    const pickCount = 1 + (Math.random() < 0.25 ? 1 : 0); // occasional double-spawn
+    for (let i = 0; i < pickCount; i++) {
+      const idx = Math.floor(Math.random() * linksCopy.length);
+      spawnPacket(linksCopy[idx]);
+    }
+    lastPacketSpawn = now;
+  }
+
+  // Drop finished packets
+  packets = packets.filter(p => (now - p.startTime) < p.duration);
+
+  // Render / update positions. The alpha curve in each() handles all fade in/out,
+  // so enter/exit don't need extra transitions.
+  packetLayer.selectAll('circle.packet')
+    .data(packets, d => d.id)
+    .join(
+      enter => enter.append('circle')
+        .attr('class', 'packet')
+        .attr('r', d => d.size)
+        .attr('fill', d => d.color)
+        .style('color', d => d.color)
+        .style('opacity', 0),
+      update => update,
+      exit => exit.remove()
+    )
+    .each(function(d) {
+      const raw = (now - d.startTime) / d.duration;
+      const t = Math.min(raw, 1);
+      // Ease-in-out cubic for a smoother feel
+      const eased = t < 0.5
+        ? 4 * t * t * t
+        : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const pathEl = d.pathEl;
+      if (!pathEl || !pathEl.isConnected) return;
+      try {
+        const len = pathEl.getTotalLength();
+        if (len <= 0) return;
+        const p = pathEl.getPointAtLength(eased * len);
+        // Gentle opacity curve: fade in at start, full middle, fade out at end
+        const alpha = t < 0.18
+          ? t / 0.18
+          : t > 0.82 ? Math.max(0, (1 - t) / 0.18) : 1;
+        d3.select(this)
+          .attr('cx', p.x)
+          .attr('cy', p.y)
+          .style('opacity', 0.95 * alpha);
+      } catch (_) { /* path disconnected, will be removed next tick */ }
+    });
+}
+
+function packetLoop() {
+  updatePackets(performance.now());
+  requestAnimationFrame(packetLoop);
+}
+
+// Reorder the SVG children: packet layer goes between links and nodes so nodes cover packets
+// (we appended packetLayer right after links, but nodes were added later above it — fix order now)
+function reorderPacketLayer() {
+  // Move packet layer to be right before nodes in DOM order
+  const nodesG = zoomG.select('.nodes').node();
+  if (nodesG && packetLayer.node().nextSibling !== nodesG) {
+    zoomG.node().insertBefore(packetLayer.node(), nodesG);
+  }
+}
+
+// ============ NODES ============
+const node = zoomG.append('g')
+  .attr('class', 'nodes')
+  .selectAll('g')
+  .data(nodesCopy)
+  .join('g')
+    .attr('class', 'node')
+    .attr('data-id', d => d.id)
+    .call(
+      d3.drag()
+        .on('start', function(event, d) {
+          if (!event.active) simulation.alphaTarget(0.08).restart();
+          d.fx = d.x; d.fy = d.y;
+        })
+        .on('drag', function(event, d) {
+          d.fx = event.x; d.fy = event.y;
+        })
+        .on('end', function(event, d) {
+          if (!event.active) simulation.alphaTarget(0);
+          // Pin the node where the user dropped it. Double-click to release.
+          d.pinned = true;
+          d3.select(this).classed('pinned', true);
+        })
+    );
+
+// Render nodes — circle background + SVG icon centered + labels
+node.each(function(d) {
+  const g = d3.select(this);
+  const color = GROUPS[d.group].color;
+  const r = GROUPS[d.group].radius;
+  g.style('color', color);
+
+  // Background circle with subtle inner fill from the group color
+  g.append('circle')
+    .attr('class', 'node-shape')
+    .attr('r', r)
+    .attr('fill', 'rgba(13, 17, 27, 0.96)')
+    .attr('stroke', color);
+
+  // Inner color tint (very subtle)
+  g.append('circle')
+    .attr('class', 'node-tint')
+    .attr('r', r - 1)
+    .attr('fill', color)
+    .attr('opacity', 0.08)
+    .attr('pointer-events', 'none');
+
+  // Icon — references symbol from defs, inherits color via parent <g>
+  const iconSize = r * 1.15;
+  g.append('use')
+    .attr('class', 'node-icon')
+    .attr('href', `#icon-${d.group}`)
+    .attr('x', -iconSize / 2)
+    .attr('y', -iconSize / 2)
+    .attr('width', iconSize)
+    .attr('height', iconSize)
+    .style('color', color)
+    .attr('pointer-events', 'none');
+
+  // Pin indicator — only visible when node is pinned
+  g.append('circle')
+    .attr('class', 'pin-indicator')
+    .attr('cx', r * 0.78)
+    .attr('cy', -r * 0.78)
+    .attr('r', 3.5);
+
+  // Label
+  g.append('text')
+    .attr('class', 'node-label')
+    .attr('dy', r + 17)
+    .text(d.label);
+
+  // Tier dots for agents (3 dots: opus=3, sonnet=2, haiku=1 filled)
+  const TIER_LEVEL = { opus: 3, sonnet: 2, haiku: 1 };
+  const isAgent = d.group === 'agent' && TIER_LEVEL[d.sublabel];
+  if (isAgent) {
+    const filled = TIER_LEVEL[d.sublabel];
+    const dotGroup = g.append('g')
+      .attr('class', 'node-tier-dots')
+      .attr('transform', `translate(0, ${r + 28})`);
+    for (let i = 0; i < 3; i++) {
+      dotGroup.append('circle')
+        .attr('class', 'node-tier-dot')
+        .attr('cx', (i - 1) * 6)
+        .attr('cy', 0)
+        .attr('r', 2)
+        .attr('fill', i < filled ? color : 'rgba(148, 163, 184, 0.22)');
+    }
+  }
+
+  // Sublabel (model name for agents, "mcp" for MCPs, "entry point" for user)
+  if (d.sublabel) {
+    g.append('text')
+      .attr('class', 'node-sublabel')
+      .attr('dy', isAgent ? r + 42 : r + 30)
+      .attr('text-anchor', 'middle')
+      .text(d.sublabel);
+  }
+});
+
+// Put packet layer between links and nodes so nodes render on top
+reorderPacketLayer();
+
+// Double-click on a node releases the pin so it rejoins the simulation
+node.on('dblclick', function(event, d) {
+  event.stopPropagation();
+  d.fx = null;
+  d.fy = null;
+  d.pinned = false;
+  d3.select(this).classed('pinned', false);
+  simulation.alphaTarget(0.12).restart();
+  setTimeout(() => simulation.alphaTarget(0), 600);
+});
+
+// ============ TOOLTIP ============
+const tooltipEl = document.getElementById('tooltip');
+const tooltipKind = tooltipEl.querySelector('.tooltip-kind');
+const tooltipLabel = tooltipEl.querySelector('.tooltip-label');
+const tooltipDesc = tooltipEl.querySelector('.tooltip-desc');
+const tooltipMeta = tooltipEl.querySelector('.tooltip-meta');
+
+function showTooltip(d, anchorEl) {
+  if (document.body.classList.contains('tour-mode')) return;
+  tooltipKind.textContent = d.kind || GROUPS[d.group].label;
+  tooltipLabel.textContent = d.label;
+
+  // First sentence of desc, capped
+  const raw = (d.desc || '').replace(/\s+/g, ' ').trim();
+  const firstSentence = raw.split(/\.(?=\s|$)/)[0];
+  const trimmed = firstSentence.length > 180 ? firstSentence.slice(0, 180) + '…' : firstSentence + '.';
+  tooltipDesc.textContent = trimmed;
+
+  // Connection count (excludes self from adjacency set)
+  const conn = (adjacency.get(d.id)?.size || 1) - 1;
+  tooltipMeta.textContent = `${conn} ${conn === 1 ? 'conexão' : 'conexões'}`;
+
+  // Position above the node
+  const rect = anchorEl.getBoundingClientRect();
+  tooltipEl.style.left = `${rect.left + rect.width / 2}px`;
+  tooltipEl.style.top = `${rect.top}px`;
+  tooltipEl.classList.add('visible');
+}
+function hideTooltip() {
+  tooltipEl.classList.remove('visible');
+}
+
+// ============ INTERACTIONS ============
+function isSearchActive() {
+  return searchInput && searchInput.value.trim().length > 0;
+}
+
+node.on('mouseenter', function(event, d) {
+  showTooltip(d, this);
+  // Don't fight with active search highlights
+  if (isSearchActive()) return;
+
+  const neighbors = adjacency.get(d.id);
+  node.classed('dim', n => !neighbors.has(n.id));
+  highlightLinks(l => l.source.id === d.id || l.target.id === d.id);
+  // Packets only flow on edges directly touching the hovered node
+  setActivePacketPredicate(l => l.source.id === d.id || l.target.id === d.id);
+});
+
+node.on('mouseleave', function() {
+  hideTooltip();
+  if (isSearchActive()) return;
+
+  node.classed('dim', false);
+  resetLinks();
+  setActivePacketPredicate(null);
+});
+
+node.on('click', (event, d) => {
+  event.stopPropagation();
+  openNodeDetails(d.id);
+});
+
+svg.on('click', () => {
+  node.classed('selected', false);
+  closeDetails();
+});
+
+// ============ TICK ============
+// Each link is drawn as a gentle arc between two points on the node borders
+// (NOT the centers), so the arrow tip lands on the border of the target node
+// and stays visible. The source end is also pulled back to the source border
+// for visual symmetry.
+simulation.on('tick', () => {
+  link.attr('d', d => {
+    const sx = d.source.x;
+    const sy = d.source.y;
+    const tx = d.target.x;
+    const ty = d.target.y;
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Degenerate case — nodes overlapping
+    if (dist < 1) {
+      return `M${sx},${sy}L${tx},${ty}`;
+    }
+
+    // Unit vector from source to target (straight-line approximation, good
+    // enough for gentle arcs where the tangent at the endpoint is close to
+    // the chord direction)
+    const ux = dx / dist;
+    const uy = dy / dist;
+
+    // Pull back both endpoints to the respective node borders. The target
+    // gets an extra ~3px gap so the arrow tip doesn't touch the stroke.
+    const sourceR = GROUPS[d.source.group].radius + 1;
+    const targetR = GROUPS[d.target.group].radius + 3;
+
+    const x1 = sx + ux * sourceR;
+    const y1 = sy + uy * sourceR;
+    const x2 = tx - ux * targetR;
+    const y2 = ty - uy * targetR;
+
+    // If the nodes are so close that shortening them collapses the line,
+    // just draw a tiny segment to avoid an empty path
+    const shortenedDist = dist - sourceR - targetR;
+    if (shortenedDist < 2) {
+      return `M${x1},${y1}L${x2},${y2}`;
+    }
+
+    // Arc radius — 3× the chord length gives a gently curved line
+    const dr = shortenedDist * 3;
+    return `M${x1},${y1}A${dr},${dr} 0 0,1 ${x2},${y2}`;
+  });
+  node.attr('transform', d => `translate(${d.x},${d.y})`);
+});
+
+// ============ DETAILS PANEL ============
+const panel = document.getElementById('details');
+
+// Render a chip with the group icon when text matches a known node
+function renderChip(text) {
+  const info = CHIP_LOOKUP[text];
+  if (!info) {
+    return `<span class="details-chip">${text}</span>`;
+  }
+  return `<span class="details-chip" data-node-id="${info.id}" style="--chip-color: ${info.color};">
+    <svg class="chip-icon" viewBox="0 0 24 24"><use href="#icon-${info.group}"/></svg>
+    ${text}
+  </span>`;
+}
+
+// Decorate <code>X</code> tags inside flow descs: if X matches a node, replace with a colored mini-chip
+function decorateCodeChips(html) {
+  return html.replace(/<code>([^<]+)<\/code>/g, (match, text) => {
+    const info = CHIP_LOOKUP[text];
+    if (!info) return match;
+    return `<span class="inline-chip" data-node-id="${info.id}" style="--chip-color: ${info.color};">
+      <svg viewBox="0 0 24 24"><use href="#icon-${info.group}"/></svg>${text}
+    </span>`;
+  });
+}
+
+// Model tier metadata (Anthropic models used by agents)
+const TIER_INFO = {
+  opus:   { level: 3, meta: 'premium · mais capaz<br/>maior custo por token' },
+  sonnet: { level: 2, meta: 'equilíbrio entre<br/>custo e qualidade' },
+  haiku:  { level: 1, meta: 'rápido e econômico<br/>para tarefas simples' }
+};
+
+// ============ DETAILS PANEL CONTROLLER ============
+const detailsHeader = document.getElementById('details-header');
+const detailsScroll = document.getElementById('details-scroll');
+let detailsHistory = [];
+let currentDetailNodeId = null;
+
+function openDetails(d) {
+  const col = GROUPS[d.group].color;
+  const tier = (d.group === 'agent') ? TIER_INFO[d.sublabel] : null;
+
+  // Back button (shown only when there's history to go back to)
+  const prevId = detailsHistory[detailsHistory.length - 1];
+  const prevNode = prevId ? nodesCopy.find(n => n.id === prevId) : null;
+  const backHtml = prevNode
+    ? `<button class="details-back">
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+           <line x1="19" y1="12" x2="5" y2="12"/>
+           <polyline points="12 19 5 12 12 5"/>
+         </svg>
+         <span>${prevNode.label}</span>
+       </button>`
+    : '';
+
+  const tierBadgeHtml = tier
+    ? `<div class="tier-badge" style="--tier-color:${GROUPS.agent.color};">
+         <div class="tier-dots-html">
+           ${[0, 1, 2].map(i => `<span class="tier-dot-html ${i < tier.level ? 'filled' : ''}"></span>`).join('')}
+         </div>
+         <span class="tier-name">${d.sublabel}</span>
+         <span class="tier-meta">${tier.meta}</span>
+       </div>`
+    : '';
+
+  const usesHtml = d.uses && d.uses.length
+    ? `<div class="details-section">
+         <h4>Consulta / usa</h4>
+         <div class="details-chips">${d.uses.map(renderChip).join('')}</div>
+       </div>`
+    : '';
+
+  const flow = FLOWS[d.id];
+  const flowTitle = d.group === 'command' ? 'Fluxo fim a fim'
+                  : d.group === 'agent'   ? 'Workflow do agente'
+                  : d.group === 'mcp'     ? 'Operações principais'
+                  : d.group === 'hook'    ? 'Como atua'
+                  : 'Timeline';
+  const flowHtml = flow && flow.length
+    ? `<div class="details-section">
+         <h4>${flowTitle}</h4>
+         <div class="details-flow" style="--accent:${col};">
+           ${flow.map((s, i) => `
+             <div class="flow-step" data-num="${String(i + 1).padStart(2, '0')}">
+               <div class="flow-step-title">${decorateCodeChips(s.title)}</div>
+               <div class="flow-step-desc">${decorateCodeChips(s.desc)}</div>
+             </div>
+           `).join('')}
+         </div>
+       </div>`
+    : '';
+
+  // Sticky header content
+  detailsHeader.innerHTML = `
+    ${backHtml}
+    <div class="details-icon-wrap" style="color:${col};">
+      <svg viewBox="0 0 24 24"><use href="#icon-${d.group}"/></svg>
+    </div>
+    <span class="details-kind" style="color:${col}; border-color:${col}33; background:${col}0f;">${d.kind}</span>
+    <h2 class="details-title">${d.label}</h2>
+    ${d.sublabel && !tier ? `<div class="details-subtitle">${d.sublabel}</div>` : ''}
+    ${tierBadgeHtml}
+    <p class="details-desc">${d.desc}</p>
+  `;
+
+  // Scrollable bottom: chips + flow (or friendly placeholder if neither)
+  const scrollContent = `${usesHtml}${flowHtml}`;
+  detailsScroll.innerHTML = scrollContent || `
+    <div class="details-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span>Este nó não tem fluxo nem dependências adicionais.</span>
+    </div>
+  `;
+  detailsScroll.scrollTop = 0;
+
+  panel.classList.add('open');
+}
+
+// Open a node's details with history tracking. opts.pushHistory=true when
+// navigating via a chip (so user can go back), false when clicking in graph.
+function openNodeDetails(nodeId, opts = {}) {
+  const target = nodesCopy.find(n => n.id === nodeId);
+  if (!target) return;
+
+  if (opts.pushHistory && currentDetailNodeId && currentDetailNodeId !== nodeId) {
+    detailsHistory.push(currentDetailNodeId);
+  } else if (!opts.preserveHistory) {
+    detailsHistory = [];
+  }
+
+  currentDetailNodeId = nodeId;
+  node.classed('selected', n => n.id === nodeId);
+  openDetails(target);
+
+  try { history.replaceState(null, '', `#${nodeId}`); } catch (_) {}
+}
+
+function goBack() {
+  if (detailsHistory.length === 0) return;
+  const prevId = detailsHistory.pop();
+  if (prevId) openNodeDetails(prevId, { preserveHistory: true });
+}
+
+// Event delegation on the panel: handles back button, chip navigation
+panel.addEventListener('click', (e) => {
+  if (e.target.closest('.details-back')) {
+    e.stopPropagation();
+    goBack();
+    return;
+  }
+  const chip = e.target.closest('[data-node-id]');
+  if (chip) {
+    e.stopPropagation();
+    openNodeDetails(chip.dataset.nodeId, { pushHistory: true });
+  }
+});
+
+function closeDetails() {
+  panel.classList.remove('open');
+  detailsHistory = [];
+  currentDetailNodeId = null;
+  try {
+    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+  } catch (_) {}
+}
+
+document.getElementById('details-close').addEventListener('click', (e) => {
+  e.stopPropagation();
+  node.classed('selected', false);
+  closeDetails();
+});
+
+// ============ LEGEND ============
+const legendNodesEl = document.getElementById('legend-nodes');
+const legendEdgesEl = document.getElementById('legend-edges');
+const groupCounts = {};
+NODES.forEach(n => groupCounts[n.group] = (groupCounts[n.group] || 0) + 1);
+
+// --- Shape icons (mirror of graph nodes: circle background + group icon) ---
+function shapeIcon(group, color) {
+  return `<svg width="24" height="24" viewBox="0 0 24 24" style="color:${color}; filter: drop-shadow(0 0 5px ${color}55); overflow: visible;">
+    <circle cx="12" cy="12" r="11" fill="rgba(13,17,27,0.96)" stroke="${color}" stroke-width="1.4"/>
+    <circle cx="12" cy="12" r="10" fill="${color}" opacity="0.1"/>
+    <use href="#icon-${group}" x="5" y="5" width="14" height="14"/>
+  </svg>`;
+}
+
+// --- Edge icons (small arrow with optional dash) ---
+function edgeIcon(color, dashed) {
+  const W = 26, H = 10;
+  const y = H / 2;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <line x1="1" y1="${y}" x2="${W - 6}" y2="${y}"
+          stroke="${color}" stroke-width="1.6" stroke-linecap="round"
+          ${dashed ? 'stroke-dasharray="3 3"' : ''}/>
+    <path d="M${W - 6},${y - 3} L${W - 1},${y} L${W - 6},${y + 3} Z" fill="${color}"/>
+  </svg>`;
+}
+
+// --- Build node-type legend (shapes, not dots) ---
+Object.entries(GROUPS).forEach(([key, g]) => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.dataset.group = key;
+  item.innerHTML = `
+    <div class="legend-shape">${shapeIcon(key, g.color)}</div>
+    <span>${g.label}</span>
+    <span class="legend-count">${groupCounts[key] || 0}</span>
+  `;
+  item.addEventListener('mouseenter', () => {
+    node.classed('dim', n => n.group !== key);
+    dimAllLinks();
+    // Packets only on edges where BOTH endpoints are in this group
+    setActivePacketPredicate(l => l.source.group === key && l.target.group === key);
+  });
+  item.addEventListener('mouseleave', () => {
+    node.classed('dim', false);
+    resetLinks();
+    setActivePacketPredicate(null);
+  });
+  legendNodesEl.appendChild(item);
+});
+
+// --- Build edge-type legend ---
+const edgeCounts = {};
+LINKS.forEach(l => edgeCounts[l.type] = (edgeCounts[l.type] || 0) + 1);
+
+Object.entries(EDGE_CONFIG).forEach(([type, cfg]) => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.dataset.edgeType = type;
+  item.innerHTML = `
+    <div class="legend-edge">${edgeIcon(cfg.active, cfg.dashed)}</div>
+    <span>${cfg.label}</span>
+    <span class="legend-count">${edgeCounts[type] || 0}</span>
+  `;
+  item.addEventListener('mouseenter', () => {
+    highlightLinks(l => l.type === type);
+    setActivePacketPredicate(l => l.type === type);
+  });
+  item.addEventListener('mouseleave', () => {
+    resetLinks();
+    setActivePacketPredicate(null);
+  });
+  legendEdgesEl.appendChild(item);
+});
+
+// ============================================================
+// GUIDED TOUR — for presenting the architecture to non-technical viewers
+// ============================================================
+const TOUR_STEPS = [
+  {
+    title: 'O início: o desenvolvedor pede algo',
+    desc: 'Tudo começa quando um dev digita um slash command no terminal do Claude Code. Pode ser um ID do Jira, descrição livre, ou um stack trace colado direto.',
+    highlight: ['user']
+  },
+  {
+    title: 'A porta de entrada: 6 comandos',
+    desc: 'Os comandos cobrem todo o ciclo de desenvolvimento — planejar features, implementar, corrigir bugs, revisar MRs e salvar contexto da sessão. Cada um sabe exatamente o que fazer.',
+    highlight: ['user', 'cmd-plan-feature', 'cmd-implement-feature', 'cmd-fix-bug', 'cmd-fix-bug-laravel', 'cmd-review-mr', 'cmd-context-dump']
+  },
+  {
+    title: 'O cérebro: agentes especializados',
+    desc: 'Cada comando aciona um agente. São 6 agentes ao todo, cada um rodando em um modelo (Opus, Sonnet ou Haiku) escolhido por relação custo/qualidade. O bug-hunter é o mais usado — bugs são o workflow mais frequente do time.',
+    highlight: ['cmd-fix-bug', 'agent-bug-hunter', 'cmd-plan-feature', 'agent-planner', 'cmd-implement-feature', 'agent-feature-dev', 'cmd-review-mr', 'agent-code-reviewer', 'agent-refactor-guide', 'agent-docs-writer']
+  },
+  {
+    title: 'A base de conhecimento: 8 skills',
+    desc: 'Skills são a memória do time. Documentam padrões de código, arquitetura Laravel, regras de migration, checklist de segurança. Os agentes consultam essas skills antes de agir — assim, todo código gerado segue as convenções do repo.',
+    highlight: ['agent-bug-hunter', 'agent-feature-dev', 'skill-coding-standards', 'skill-laravel-architecture', 'skill-git-workflow', 'skill-migration-safety', 'skill-security-checklist', 'skill-v4-v5-equivalence', 'skill-ui-impact-check', 'skill-module-documentation']
+  },
+  {
+    title: 'A integração externa: MCP',
+    desc: 'Os agentes falam com sistemas externos via MCP (Model Context Protocol). Buscam contexto de tickets no Jira, publicam RCAs como comentário, abrem MRs no GitLab — tudo sem o dev sair do Claude Code.',
+    highlight: ['agent-bug-hunter', 'agent-planner', 'agent-feature-dev', 'agent-code-reviewer', 'mcp-jira', 'mcp-gitlab']
+  },
+  {
+    title: 'O resultado: entregáveis automáticos',
+    desc: 'No fim do fluxo, o dev tem um RCA estruturado já publicado no Jira e um MR aberto no GitLab — sem nenhuma etapa manual depois da aprovação do commit. O ciclo bug→MR caiu para minutos.',
+    highlight: ['mcp-jira', 'mcp-gitlab', 'out-rca', 'out-mr']
+  },
+  {
+    title: 'A rede de proteção: hooks',
+    desc: 'Hooks rodam ANTES de cada comando Bash. Bloqueiam vazamento de secrets em comandos, git push --force, git reset --hard. Evita que o assistente faça besteira por engano — proteção ativa, não reativa.',
+    highlight: ['hook-check-secrets', 'hook-check-destructive', 'hook-session-end', 'user', 'cmd-context-dump']
+  },
+  {
+    title: 'A engrenagem completa',
+    desc: 'Tudo isso conectado dá um ciclo de desenvolvimento onde o dev escreve menos boilerplate, gasta menos tempo em tarefas repetitivas, e produz código mais consistente — porque os agentes consultam as skills antes de cada decisão. Pronto para fechar o tour.',
+    highlight: NODES.map(n => n.id)
+  }
+];
+
+let tourStep = 0;
+const tourOverlay = document.getElementById('tour-overlay');
+const tourTitle = document.getElementById('tour-title');
+const tourDesc = document.getElementById('tour-desc');
+const tourCurrent = document.getElementById('tour-current');
+const tourTotal = document.getElementById('tour-total');
+const tourFill = document.getElementById('tour-progress-fill');
+const tourPrev = document.getElementById('tour-prev');
+const tourNext = document.getElementById('tour-next');
+
+tourTotal.textContent = TOUR_STEPS.length;
+
+function startTour() {
+  tourStep = 0;
+  document.body.classList.add('tour-mode');
+  tourOverlay.classList.add('active');
+  closeDetails();
+  resetLinks();
+  showTourStep();
+}
+
+function exitTour() {
+  document.body.classList.remove('tour-mode');
+  tourOverlay.classList.remove('active');
+  node.classed('tour-on', false);
+  resetLinks();
+}
+
+function showTourStep() {
+  const step = TOUR_STEPS[tourStep];
+  if (!step) return;
+
+  tourTitle.textContent = step.title;
+  tourDesc.textContent = step.desc;
+  tourCurrent.textContent = tourStep + 1;
+  tourFill.style.width = `${((tourStep + 1) / TOUR_STEPS.length) * 100}%`;
+
+  const highlighted = new Set(step.highlight);
+  node.classed('tour-on', n => highlighted.has(n.id));
+
+  // Highlight links between any pair of highlighted nodes
+  highlightLinks(l => highlighted.has(l.source.id) && highlighted.has(l.target.id));
+
+  tourPrev.disabled = tourStep === 0;
+  tourNext.textContent = tourStep === TOUR_STEPS.length - 1 ? 'Concluir ✓' : 'Próximo →';
+}
+
+function nextTourStep() {
+  if (tourStep < TOUR_STEPS.length - 1) {
+    tourStep++;
+    showTourStep();
+  } else {
+    exitTour();
+  }
+}
+
+function prevTourStep() {
+  if (tourStep > 0) {
+    tourStep--;
+    showTourStep();
+  }
+}
+
+document.getElementById('tour-start').addEventListener('click', startTour);
+tourNext.addEventListener('click', nextTourStep);
+tourPrev.addEventListener('click', prevTourStep);
+document.getElementById('tour-skip').addEventListener('click', exitTour);
+
+// Keyboard nav: arrows during tour, Esc to exit, F for fullscreen
+document.addEventListener('keydown', (e) => {
+  if (document.body.classList.contains('tour-mode')) {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextTourStep(); }
+    if (e.key === 'ArrowLeft')  prevTourStep();
+    if (e.key === 'Escape')     exitTour();
+  } else {
+    if (e.key === 'Escape') {
+      if (palette.classList.contains('open')) {
+        closePalette();
+      } else if (aboutModal.classList.contains('open')) {
+        closeAbout();
+      } else if (document.body.classList.contains('pseudo-fullscreen')) {
+        toggleFullscreen();
+      } else {
+        closeDetails();
+      }
+    }
+    if (e.key === 'f' || e.key === 'F') {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      toggleFullscreen();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      resetView();
+    }
+    if (e.key === 'o' || e.key === 'O') {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      toggleOrganize();
+    }
+  }
+});
+
+// ============ SEARCH / FILTER ============
+const searchInput = document.getElementById('search-input');
+const searchClear = document.getElementById('search-clear');
+
+function applySearch(query) {
+  const q = query.trim().toLowerCase();
+  searchClear.classList.toggle('visible', q.length > 0);
+
+  if (q.length === 0) {
+    node.classed('search-dim', false).classed('search-hit', false);
+    resetLinks();
+    setActivePacketPredicate(null);
+    return;
+  }
+
+  const matches = new Set();
+  nodesCopy.forEach(n => {
+    const haystack = `${n.label} ${n.kind || ''} ${n.desc || ''} ${n.sublabel || ''}`.toLowerCase();
+    if (haystack.includes(q)) matches.add(n.id);
+  });
+
+  node.classed('search-dim', n => !matches.has(n.id));
+  node.classed('search-hit', n => matches.has(n.id));
+  highlightLinks(l => matches.has(l.source.id) && matches.has(l.target.id));
+  // Packets only flow on edges where both endpoints match the filter
+  setActivePacketPredicate(l => matches.has(l.source.id) && matches.has(l.target.id));
+}
+
+searchInput.addEventListener('input', (e) => applySearch(e.target.value));
+searchClear.addEventListener('click', () => {
+  searchInput.value = '';
+  applySearch('');
+  searchInput.focus();
+});
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    searchInput.value = '';
+    applySearch('');
+    searchInput.blur();
+  }
+});
+
+// "/" focuses the search bar from anywhere — expands the legend if collapsed
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    const legendEl = document.getElementById('legend');
+    if (legendEl.classList.contains('collapsed')) {
+      legendEl.classList.remove('collapsed');
+      setTimeout(() => { searchInput.focus(); searchInput.select(); }, 360);
+    } else {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
+});
+
+// Legend collapse/expand
+const legendToggle = document.getElementById('legend-toggle');
+legendToggle.addEventListener('click', () => {
+  const legendEl = document.getElementById('legend');
+  legendEl.classList.toggle('collapsed');
+  legendToggle.setAttribute(
+    'title',
+    legendEl.classList.contains('collapsed') ? 'Expandir legenda' : 'Recolher legenda'
+  );
+});
+
+// ============ COMMAND PALETTE (Cmd+K) ============
+const palette = document.getElementById('palette');
+const paletteInput = document.getElementById('palette-input');
+const paletteList = document.getElementById('palette-list');
+let paletteSelectedIdx = 0;
+let paletteFiltered = [];
+
+function openPalette() {
+  palette.classList.add('open');
+  paletteInput.value = '';
+  paletteSelectedIdx = 0;
+  renderPaletteList('');
+  setTimeout(() => paletteInput.focus(), 50);
+}
+function closePalette() {
+  palette.classList.remove('open');
+  paletteInput.blur(); // release focus so global "/" shortcut works after closing
+}
+function renderPaletteList(query) {
+  const q = query.trim().toLowerCase();
+  paletteFiltered = NODES.filter(n => {
+    if (!q) return true;
+    return (`${n.label} ${n.kind || ''} ${n.sublabel || ''}`).toLowerCase().includes(q);
+  });
+
+  if (paletteFiltered.length === 0) {
+    paletteList.innerHTML = `<div class="palette-empty">Nenhum nó para "<strong>${query}</strong>"</div>`;
+    return;
+  }
+
+  paletteList.innerHTML = paletteFiltered.map((n, i) => {
+    const col = GROUPS[n.group].color;
+    return `
+      <div class="palette-item ${i === paletteSelectedIdx ? 'selected' : ''}" data-idx="${i}">
+        <div class="palette-item-icon" style="color:${col};">
+          <svg viewBox="0 0 24 24"><use href="#icon-${n.group}"/></svg>
+        </div>
+        <span class="palette-item-label">${n.label}</span>
+        <span class="palette-item-kind">${n.kind || GROUPS[n.group].label}</span>
+      </div>
+    `;
+  }).join('');
+}
+function paletteScrollSelectedIntoView() {
+  const sel = paletteList.querySelector('.palette-item.selected');
+  if (sel) sel.scrollIntoView({ block: 'nearest' });
+}
+
+paletteInput.addEventListener('input', (e) => {
+  paletteSelectedIdx = 0;
+  renderPaletteList(e.target.value);
+});
+paletteInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    closePalette();
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    paletteSelectedIdx = Math.min(paletteSelectedIdx + 1, paletteFiltered.length - 1);
+    renderPaletteList(paletteInput.value);
+    paletteScrollSelectedIntoView();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    paletteSelectedIdx = Math.max(paletteSelectedIdx - 1, 0);
+    renderPaletteList(paletteInput.value);
+    paletteScrollSelectedIntoView();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const target = paletteFiltered[paletteSelectedIdx];
+    if (target) {
+      openNodeDetails(target.id);
+      closePalette();
+    }
+  }
+});
+paletteList.addEventListener('click', (e) => {
+  const item = e.target.closest('.palette-item');
+  if (!item) return;
+  const idx = parseInt(item.dataset.idx, 10);
+  const target = paletteFiltered[idx];
+  if (target) {
+    openNodeDetails(target.id);
+    closePalette();
+  }
+});
+palette.addEventListener('click', (e) => {
+  if (e.target === palette) closePalette();
+});
+
+// Cmd+K / Ctrl+K opens the palette from anywhere
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    if (palette.classList.contains('open')) closePalette();
+    else openPalette();
+  }
+});
+
+// ============ ABOUT MODAL ============
+const aboutModal = document.getElementById('about-modal');
+const aboutDontShow = document.getElementById('about-dontshow');
+
+function openAbout() { aboutModal.classList.add('open'); }
+function closeAbout() {
+  aboutModal.classList.remove('open');
+  if (aboutDontShow.checked) {
+    try { localStorage.setItem('claudeNetworkAboutSeen', 'true'); } catch (_) {}
+  }
+}
+
+document.getElementById('about-trigger').addEventListener('click', openAbout);
+document.getElementById('about-close').addEventListener('click', closeAbout);
+document.getElementById('about-cta').addEventListener('click', closeAbout);
+aboutModal.addEventListener('click', (e) => { if (e.target === aboutModal) closeAbout(); });
+
+// Auto-open on first visit
+try {
+  if (!localStorage.getItem('claudeNetworkAboutSeen')) {
+    setTimeout(openAbout, 600);
+  }
+} catch (_) { /* localStorage blocked, skip */ }
+
+// ============ HEAT MAP (centrality) ============
+function applyHeatMode(enabled) {
+  document.body.classList.toggle('heat-mode', enabled);
+  document.getElementById('heat-toggle').classList.toggle('active', enabled);
+
+  node.each(function(d) {
+    const g = d3.select(this);
+    const color = enabled ? heatColor(centralityT(d.id)) : GROUPS[d.group].color;
+    // Propagate color to every part of the node: stroke, tint fill, icon, label glow
+    g.style('color', color);
+    g.select('.node-shape').attr('stroke', color);
+    g.select('.node-tint').attr('fill', color);
+    g.select('.node-icon').style('color', color);
+    // Update tier dots (agents only) — they use the filled color
+    g.selectAll('.node-tier-dot').each(function() {
+      const dot = d3.select(this);
+      const currentFill = dot.attr('fill');
+      // Only recolor filled dots (the empty ones use a neutral gray)
+      if (currentFill && currentFill !== 'rgba(148, 163, 184, 0.22)') {
+        dot.attr('fill', color);
+      }
+    });
+  });
+}
+
+// Build the heat bar gradient from the turbo scale (20 stops)
+(function initHeatBar() {
+  const bar = document.getElementById('heat-bar');
+  if (!bar) return;
+  const stops = [];
+  for (let i = 0; i <= 20; i++) {
+    stops.push(heatColor(i / 20));
+  }
+  bar.style.background = `linear-gradient(to right, ${stops.join(', ')})`;
+  document.getElementById('heat-min').textContent = `${CENTRALITY.min} conexões`;
+  document.getElementById('heat-max').textContent = `${CENTRALITY.max} conexões`;
+})();
+
+document.getElementById('heat-toggle').addEventListener('click', () => {
+  applyHeatMode(!document.body.classList.contains('heat-mode'));
+});
+
+// ============ ORGANIZE (grid-by-type layout) ============
+// Toggle between free-form radial layout and an organized columns-by-type grid
+// where every node is pinned in place. Click again (or press O) to unlock.
+let isOrganized = false;
+const ORGANIZE_COL_ORDER = ['user', 'command', 'agent', 'skill', 'mcp', 'output', 'hook'];
+
+function organizeLayout() {
+  const vpW = window.innerWidth;
+  const vpH = window.innerHeight;
+  const padX = 120;
+  const availableW = vpW - 2 * padX;
+  const cols = ORGANIZE_COL_ORDER;
+  const colGap = availableW / (cols.length - 1);
+  const rowGap = 82;
+
+  const byGroup = {};
+  nodesCopy.forEach(n => { (byGroup[n.group] = byGroup[n.group] || []).push(n); });
+
+  cols.forEach((group, colIdx) => {
+    const colNodes = byGroup[group] || [];
+    const x = padX + colIdx * colGap;
+    const n = colNodes.length;
+    colNodes.forEach((node, i) => {
+      const y = vpH / 2 + (i - (n - 1) / 2) * rowGap;
+      node.fx = x;
+      node.fy = y;
+    });
+  });
+}
+
+function unorganizeLayout() {
+  nodesCopy.forEach(n => {
+    if (n.id !== 'user') {
+      n.fx = null;
+      n.fy = null;
+    }
+  });
+  pinUserToCenter();
+}
+
+function toggleOrganize() {
+  isOrganized = !isOrganized;
+  if (isOrganized) {
+    organizeLayout();
+    simulation.alpha(0.35).restart();
+    setTimeout(() => simulation.alphaTarget(0), 1200);
+  } else {
+    unorganizeLayout();
+    simulation.alpha(0.5).restart();
+    setTimeout(() => simulation.alphaTarget(0), 1500);
+  }
+  document.getElementById('organize-toggle').classList.toggle('active', isOrganized);
+}
+
+document.getElementById('organize-toggle').addEventListener('click', toggleOrganize);
+
+// ============ RESET VIEW ============
+function resetView() {
+  // Exit organize mode if it was on
+  if (isOrganized) {
+    isOrganized = false;
+    document.getElementById('organize-toggle').classList.remove('active');
+  }
+  // Unpin every node except the user (which stays centered)
+  nodesCopy.forEach(n => {
+    if (n.id !== 'user') {
+      n.fx = null;
+      n.fy = null;
+    }
+    n.pinned = false;
+  });
+  node.classed('pinned', false);
+  node.classed('selected', false);
+  pinUserToCenter();
+  // Re-spread nodes to their starting angular positions
+  spreadNodesInitially();
+
+  // Reset zoom and pan
+  svg.transition()
+    .duration(700)
+    .call(zoomBehavior.transform, d3.zoomIdentity);
+
+  // Restart simulation
+  simulation.alpha(0.6).restart();
+  setTimeout(() => simulation.alphaTarget(0), 1500);
+
+  // Clear search
+  if (searchInput.value) {
+    searchInput.value = '';
+    applySearch('');
+  }
+
+  // Exit heat mode if active
+  if (document.body.classList.contains('heat-mode')) {
+    applyHeatMode(false);
+  }
+
+  // Replay entrance animation
+  playEntranceAnimation();
+}
+document.getElementById('reset-view').addEventListener('click', resetView);
+
+// ============ FULLSCREEN ============
+// Uses CSS pseudo-fullscreen as the primary mechanism (works inside sandboxed
+// iframes where the native Fullscreen API is blocked). Also tries the native
+// API as a bonus when the page is opened directly in a browser.
+function toggleFullscreen() {
+  const willEnter = !document.body.classList.contains('pseudo-fullscreen');
+  document.body.classList.toggle('pseudo-fullscreen', willEnter);
+
+  if (willEnter) {
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {/* iframe blocked, pseudo handles it */});
+    }
+  } else {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+}
+document.getElementById('fullscreen-toggle').addEventListener('click', toggleFullscreen);
+document.getElementById('exit-fullscreen').addEventListener('click', toggleFullscreen);
+
+// Sync pseudo state when user presses Esc to exit native fullscreen
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && document.body.classList.contains('pseudo-fullscreen')) {
+    document.body.classList.remove('pseudo-fullscreen');
+  }
+});
+
+// ============ RESIZE ============
+window.addEventListener('resize', () => {
+  svg.attr('width', width()).attr('height', height());
+  pinUserToCenter();
+  // Re-center the radial force so the network re-orbits around the user
+  const radial = simulation.force('radial');
+  if (radial) {
+    radial.x(window.innerWidth / 2).y(window.innerHeight / 2);
+  }
+  simulation.alpha(0.3).restart();
+});
+
+// ============ ENTRANCE ANIMATION ============
+// Stagger fade-in of nodes by group, then links. Used on first load and reset.
+const ENTRANCE_GROUP_ORDER = ['user', 'command', 'agent', 'skill', 'mcp', 'output', 'hook'];
+let entranceCleanupDone = false;
+
+// Clears inline opacity so CSS classes (.dim, .search-dim, .tour-on, etc.) can take over
+function finishEntranceAnimation() {
+  if (entranceCleanupDone) return;
+  entranceCleanupDone = true;
+  document.body.classList.remove('animating');
+  node.style('opacity', null);
+  // resetLinks() restores the default color/opacity/width/marker without inline overrides
+  resetLinks();
+}
+
+function playEntranceAnimation() {
+  entranceCleanupDone = false;
+  document.body.classList.add('animating');
+
+  // Cancel any in-flight transitions and reset to invisible
+  node.interrupt('entrance');
+  link.interrupt('entrance');
+  node.style('opacity', 0);
+  link.attr('stroke-opacity', 0);
+
+  // Stagger nodes by group
+  ENTRANCE_GROUP_ORDER.forEach((g, gIdx) => {
+    node.filter(n => n.group === g)
+      .transition('entrance')
+      .delay(120 + gIdx * 90)
+      .duration(550)
+      .ease(d3.easeQuadOut)
+      .style('opacity', 1);
+  });
+
+  // Then fade in the links and unlock interactions
+  const linksDelay = 120 + ENTRANCE_GROUP_ORDER.length * 90 + 60;
+  link.transition('entrance')
+    .delay(linksDelay)
+    .duration(700)
+    .attr('stroke-opacity', 1)
+    .on('end', finishEntranceAnimation);
+
+  // Safety fallback in case on('end') doesn't fire (e.g. no links in selection)
+  setTimeout(finishEntranceAnimation, linksDelay + 1200);
+}
+
+// Initial kick
+simulation.alpha(1).restart();
+playEntranceAnimation();
+
+// Start the data packet animation loop (runs forever, self-gated by canRunPackets)
+requestAnimationFrame(packetLoop);
+
+// ============ URL HASH SYNC ============
+// Open the node referenced in the URL hash (if any) after the layout settles
+function openFromUrlHash() {
+  const hash = window.location.hash.replace(/^#/, '');
+  if (!hash) return;
+  const target = nodesCopy.find(n => n.id === hash);
+  if (target) openNodeDetails(target.id);
+}
+setTimeout(openFromUrlHash, 1600);
+window.addEventListener('hashchange', openFromUrlHash);
+</script>
+</body>
+</html>
