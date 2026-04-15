@@ -1696,58 +1696,63 @@ const ICONS = {
 const NODES = [
   { id: 'user', label: 'Dev', sublabel: 'entry point', group: 'user',
     kind: 'Usuário',
-    desc: 'Ponto de partida de todo fluxo. O dev digita um comando slash no Claude Code (ex: /fix-bug AP-2803) e recebe de volta código implementado, RCA publicado no Jira, e MR aberto no GitLab — sem sair do terminal.' },
+    desc: 'Ponto de partida de todo fluxo. O dev digita um comando slash no Claude Code (ex: <code>/fix-bug</code> AP-2803) e recebe de volta código implementado, RCA publicado no <code>Jira</code>, e MR aberto no <code>GitLab</code> — sem sair do terminal.' },
 
   // Commands
   { id: 'cmd-plan-feature', label: '/plan-feature', group: 'command',
     kind: 'Comando',
-    desc: 'Ponto de entrada obrigatório para qualquer feature. Aciona o agente planner, que classifica a complexidade (Baixa / Média / Alta / Muito Alta). Baixa e Média auto-delegam direto para /implement-feature. Só Alta+ pausa para aprovação humana antes de implementar.',
-    uses: ['planner', 'v4-v5-equivalence', 'coding-standards', 'Jira'] },
+    desc: 'Ponto de entrada obrigatório para qualquer feature. Aciona o agente <code>planner</code>, que classifica a complexidade (Baixa / Média / Alta / Muito Alta). Em planos Média/Alta/Muito Alta, força consulta obrigatória ao <code>Sentry</code> pra checar sinais de erro nos arquivos-alvo. Se o dev chamar sem AP-XXXX mas com descrição clara, invoca a skill <code>create-jira-issue</code> em modo interno (tipo Story, severidade default Medium) e materializa o card antes de planejar. Baixa e Média auto-delegam direto para <code>/implement-feature</code>. Só Alta+ pausa para aprovação humana antes de implementar.',
+    uses: ['planner', 'v4-v5-equivalence', 'coding-standards', 'create-jira-issue', 'Jira', 'Sentry'] },
 
   { id: 'cmd-implement-feature', label: '/implement-feature', group: 'command',
     kind: 'Comando',
-    desc: 'Segundo passo do fluxo de feature. Consome o plano aprovado em docs/plans/AP-XXXX.md como fonte de verdade. Após aprovação do commit, executa commit + push + abre (ou atualiza) o MR automaticamente via MCP GitLab. Apaga o plano ao final.',
-    uses: ['feature-dev', 'coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist', 'ui-impact-check', 'GitLab'] },
+    desc: 'Segundo passo do fluxo de feature. Consome o plano aprovado em docs/plans/AP-XXXX.md como fonte de verdade. Se chamado sem AP-XXXX ou sem plano existente, auto-delega pra <code>/plan-feature</code> (que por sua vez pode invocar <code>create-jira-issue</code> pra materializar o card). Após aprovação do commit, executa commit + push + abre (ou atualiza) o MR automaticamente via <code>GitLab</code>. Apaga o plano ao final.',
+    uses: ['feature-dev', 'coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist', 'ui-impact-check', 'create-jira-issue', 'GitLab'] },
 
   { id: 'cmd-fix-bug', label: '/fix-bug', group: 'command',
     kind: 'Comando',
-    desc: 'Fluxo mais usado do repo — bugs são o workflow mais frequente do time. Aciona o bug-hunter, que produz RCA obrigatório (publicado no Jira imediatamente), aplica fix cirúrgico, valida via smoke test manual, e após aprovação executa commit + push + abre MR automaticamente.',
-    uses: ['bug-hunter', 'coding-standards', 'git-workflow', 'Jira', 'GitLab'] },
+    desc: 'Fluxo mais usado do repo — bugs são o workflow mais frequente do time. Aciona o <code>bug-hunter</code>, que começa puxando stacktrace + variáveis locais + release do <code>Sentry</code>, produz RCA obrigatório (publicado no <code>Jira</code> imediatamente), aplica fix cirúrgico, valida via smoke test manual, e após aprovação executa commit + push + abre MR automaticamente. Se chamado sem AP-XXXX mas com evidência (Sentry ID, stacktrace, relato claro), invoca a skill <code>create-jira-issue</code> pra materializar o card (severidade inferida dos números do Sentry) antes de começar a investigar — o agente sempre recebe um ID válido.',
+    uses: ['bug-hunter', 'coding-standards', 'git-workflow', 'create-jira-issue', 'Jira', 'Sentry', 'GitLab'] },
 
   { id: 'cmd-fix-bug-laravel', label: '/fix-bug-laravel', group: 'command',
     kind: 'Comando',
-    desc: 'Versão mais cautelosa do /fix-bug, usada quando o bug envolve schema MySQL compartilhado com o NestJS v5. Obriga consulta da skill migration-safety antes de qualquer ALTER/DROP/rename — uma migration errada pode quebrar v4 e v5 em produção simultaneamente.',
-    uses: ['bug-hunter', 'migration-safety', 'laravel-architecture', 'coding-standards', 'git-workflow', 'Jira', 'GitLab'] },
+    desc: 'Versão mais cautelosa do <code>/fix-bug</code>, usada quando o bug envolve schema MySQL compartilhado com o NestJS v5. O <code>bug-hunter</code> puxa contexto do <code>Sentry</code> antes de investigar. Obriga consulta da skill <code>migration-safety</code> antes de qualquer ALTER/DROP/rename — uma migration errada pode quebrar v4 e v5 em produção simultaneamente. Mesmo fallback do <code>/fix-bug</code>: sem AP-XXXX, invoca <code>create-jira-issue</code> em modo interno e segue adiante.',
+    uses: ['bug-hunter', 'migration-safety', 'laravel-architecture', 'coding-standards', 'git-workflow', 'create-jira-issue', 'Jira', 'Sentry', 'GitLab'] },
 
   { id: 'cmd-review-mr', label: '/review-mr', group: 'command',
     kind: 'Comando',
-    desc: 'Revisão local da branch pelo code-reviewer antes de abrir o MR. Produz relatório estruturado (Aprovado / Ressalvas / Bloqueado) proporcional ao tamanho do diff, commita arquivos esquecidos automaticamente, e abre (ou atualiza) o MR no GitLab sem perguntar sobre reviewer ou labels.',
-    uses: ['code-reviewer', 'coding-standards', 'security-checklist', 'GitLab'] },
+    desc: 'Revisão local da branch pelo <code>code-reviewer</code> antes de abrir o MR. Em diffs Intermediário/Grande, força o Passo 2.5 "Sinais do <code>Sentry</code> por arquivo tocado". Produz relatório estruturado (Aprovado / Ressalvas / Bloqueado) proporcional ao tamanho do diff, commita arquivos esquecidos automaticamente, e abre (ou atualiza) o MR no <code>GitLab</code> sem perguntar sobre reviewer ou labels.',
+    uses: ['code-reviewer', 'coding-standards', 'security-checklist', 'Sentry', 'GitLab'] },
 
   { id: 'cmd-context-dump', label: '/context-dump', group: 'command',
     kind: 'Comando',
     desc: 'Salva um resumo estruturado do estado atual da sessão em docs/sessions/ para que a próxima sessão (sua ou de outro dev) retome exatamente de onde parou, sem re-explicar contexto ao Claude. Usado ao final de sessões longas. Não aciona nenhum agente.' },
 
+  { id: 'cmd-sentry-triage', label: '/sentry-triage', group: 'command',
+    kind: 'Comando · Proativo',
+    desc: 'Comando <strong>proativo</strong> de triagem. Enquanto <code>/fix-bug</code> e <code>/fix-bug-laravel</code> são reativos (alguém cola um ID), o <code>/sentry-triage</code> percorre os top issues <code>Sentry</code> unresolved do projeto <code>health-it-v4</code> filtrados por <code>environment:prod</code> nos últimos N dias (default 7d / top 10, clamps 1-30) e garante que cada um tenha card no <code>Jira</code>. Filtra ruído (count &lt; 5, vendor/node_modules, auto-resolved), classifica severidade pelos thresholds da skill <code>create-jira-issue</code> (count ≥ 500 ou userCount ≥ 20 → Critical; ≥ 100 ou ≥ 5 → High; ≥ 20 ou ≥ 2 → Medium), delega cada candidato em <em>modo interno</em> pra skill que faz dedup contra Jira aberto (rodar 2× no dia é seguro), aplica label <code>sentry-triage</code> e aprovação em batch dos drafts Medium/Low. Críticos/Highs criam direto, nunca atribui assignee default. Rodável via <code>/loop 24h</code> ou cron remoto (<code>/schedule</code>) como "grooming automático" do backlog.',
+    uses: ['create-jira-issue', 'Sentry', 'Jira'] },
+
   // Agents
   { id: 'agent-planner', label: 'planner', sublabel: 'opus', group: 'agent',
     kind: 'Agente · Opus',
-    desc: 'Arquiteto sênior. Planeja features ANTES de qualquer código. Produz specs técnicas, mapeia arquivos afetados, identifica riscos e estima complexidade. Nunca escreve código. Classifica toda demanda em Baixa / Média / Alta / Muito Alta para calibrar o tamanho do plano.',
-    uses: ['v4-v5-equivalence', 'coding-standards', 'laravel-architecture'] },
+    desc: 'Arquiteto sênior. Planeja features ANTES de qualquer código. Produz specs técnicas, mapeia arquivos afetados, identifica riscos e estima complexidade. Nunca escreve código. Classifica toda demanda em Baixa / Média / Alta / Muito Alta para calibrar o tamanho do plano. Consulta <code>Sentry</code> no Passo 3.5 pra checar erros ativos nos arquivos-alvo antes de planejar.',
+    uses: ['v4-v5-equivalence', 'coding-standards', 'laravel-architecture', 'create-jira-issue', 'Sentry'] },
 
   { id: 'agent-feature-dev', label: 'feature-dev', sublabel: 'sonnet', group: 'agent',
     kind: 'Agente · Sonnet',
     desc: 'Implementador sênior. Executa features a partir de um plano técnico aprovado — nunca começa sem plano. Trabalha arquivo por arquivo, segue os coding standards, calibra esforço pela complexidade do plano, e faz scan dos arquivos vizinhos antes de editar para herdar convenções locais.',
-    uses: ['coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist', 'ui-impact-check', 'v4-v5-equivalence'] },
+    uses: ['coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist', 'ui-impact-check', 'v4-v5-equivalence', 'create-jira-issue'] },
 
   { id: 'agent-bug-hunter', label: 'bug-hunter', sublabel: 'sonnet', group: 'agent',
     kind: 'Agente · Sonnet',
-    desc: 'Depurador sistemático. Investiga bugs até a causa raiz, documenta o RCA, corrige com precisão cirúrgica. Regra fundamental: NUNCA propõe correção antes de completar o RCA. Entender o problema é mais importante que resolver rápido — um fix sem RCA é um fix que volta.',
-    uses: ['coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist'] },
+    desc: 'Depurador sistemático. Investiga bugs até a causa raiz, documenta o RCA, corrige com precisão cirúrgica. Regra fundamental: NUNCA propõe correção antes de completar o RCA. Primeiro passo de toda investigação: puxar stacktrace + variáveis locais + release do <code>Sentry</code> antes de abrir um arquivo sequer. Entender o problema é mais importante que resolver rápido.',
+    uses: ['coding-standards', 'laravel-architecture', 'git-workflow', 'migration-safety', 'security-checklist', 'create-jira-issue', 'Sentry'] },
 
   { id: 'agent-code-reviewer', label: 'code-reviewer', sublabel: 'opus', group: 'agent',
     kind: 'Agente · Opus',
-    desc: 'Revisor sênior. Como o repo não tem linting, type-check, nem testes automatizados, este agente é a única linha de defesa antes do merge. Revisa com rigor proporcional ao tamanho do diff e produz relatório estruturado com bloqueadores, sugestões e pontos positivos.',
-    uses: ['coding-standards', 'security-checklist', 'laravel-architecture', 'migration-safety'] },
+    desc: 'Revisor sênior. Como o repo não tem linting, type-check, nem testes automatizados, este agente é a única linha de defesa antes do merge. Revisa com rigor proporcional ao tamanho do diff e produz relatório estruturado com bloqueadores, sugestões e pontos positivos. No Passo 2.5 "Sinais do Sentry por arquivo tocado", consulta <code>Sentry</code> pra cada arquivo do diff em busca de erros ativos relacionados.',
+    uses: ['coding-standards', 'security-checklist', 'laravel-architecture', 'migration-safety', 'create-jira-issue', 'Sentry'] },
 
   { id: 'agent-refactor-guide', label: 'refactor-guide', sublabel: 'opus', group: 'agent',
     kind: 'Agente · Opus',
@@ -1766,7 +1771,7 @@ const NODES = [
 
   { id: 'skill-git-workflow', label: 'git-workflow', group: 'skill',
     kind: 'Skill',
-    desc: 'Convenções de Git do time: nomeação de branch (AP-XXXX a partir de homologacao, hotfix de master), formato de commit (fix/feat/chore em português), processo de MR, proporcionalidade dos artefatos (RCA, MR body, comentário Jira) pelo tamanho do diff, defaults do MR (sem reviewer e sem labels).' },
+    desc: 'Convenções de Git do time: nomeação de branch (AP-XXXX a partir de homologacao, hotfix de master), formato de commit (fix/feat/chore em português), processo de MR, proporcionalidade dos artefatos (RCA, MR body, comentário Jira) pelo tamanho do diff, defaults do MR (sem reviewer e sem labels). Política explícita: <strong>não adicionar marcadores <code>Fixes HEALTH-IT-V4-XXX</code></strong> no corpo do commit — o Jenkinsfile não publica releases no Sentry (só backup + rsync + <code>cache:clear</code>), então o gatilho fica letra morta. Rastreabilidade Sentry entra pelo RCA (seção "Telemetria") e pelo comentário ADF no Jira, nunca pelo commit.' },
 
   { id: 'skill-laravel-architecture', label: 'laravel-architecture', group: 'skill',
     kind: 'Skill',
@@ -1792,6 +1797,11 @@ const NODES = [
     kind: 'Skill',
     desc: 'Gera documentação .md de módulos da plataforma para a knowledge base da HIRA (assistente de IA do Hitfy, que ajuda usuários a navegar o portal). 100% autônoma — não faz perguntas, infere tudo do código-fonte. Informação precisa estar co-localizada porque o vector search retorna chunks isolados.' },
 
+  { id: 'skill-create-jira-issue', label: 'create-jira-issue', group: 'skill',
+    kind: 'Skill',
+    desc: 'Cria issues novas no projeto AP do <code>Jira</code> a partir de achados acidentais durante outro trabalho. Os agentes <code>bug-hunter</code>, <code>code-reviewer</code>, <code>feature-dev</code> e <code>planner</code> delegam pra cá quando encontram bugs, débitos técnicos ou vulnerabilidades FORA do escopo da tarefa atual. Classifica severidade (Critical/High/Medium/Low), faz dedup contra issues abertas, monta descrição adaptativa pelo template. Se o bug tem ID Sentry (<code>HEALTH-IT-V4-XXX</code>), enriquece com contexto do <code>Sentry</code> antes de criar o card. Critical e High vão direto; Medium e Low exigem aprovação humana do draft.',
+    uses: ['Jira', 'Sentry'] },
+
   // Hooks
   { id: 'hook-check-secrets', label: 'check-secrets', group: 'hook',
     kind: 'Hook · PreToolUse',
@@ -1803,25 +1813,29 @@ const NODES = [
 
   { id: 'hook-session-end', label: 'session-end', group: 'hook',
     kind: 'Hook · Stop',
-    desc: 'Roda ao encerrar a sessão. Toca uma sequência de beeps no Windows (avisa que o Claude terminou de trabalhar) e imprime lembrete para rodar /context-dump quando a sessão for longa, para não perder o contexto mental do trabalho.' },
+    desc: 'Roda ao encerrar a sessão. Toca uma sequência de beeps no Windows (avisa que o Claude terminou de trabalhar) e imprime lembrete para rodar <code>/context-dump</code> quando a sessão for longa, para não perder o contexto mental do trabalho.' },
 
   // MCP
   { id: 'mcp-gitlab', label: 'GitLab', sublabel: 'mcp', group: 'mcp',
     kind: 'MCP externo',
-    desc: 'Integração com o GitLab self-hosted do time (192.168.10.124:2080). Permite que os comandos abram e atualizem merge requests, publiquem o relatório do code-reviewer como primeiro comentário do MR, busquem diffs de branches, listem labels e reviewers — tudo sem tirar o dev do Claude Code.' },
+    desc: 'Integração com o GitLab self-hosted do time (192.168.10.124:2080). Permite que os comandos abram e atualizem merge requests, publiquem o relatório do <code>code-reviewer</code> como primeiro comentário do MR, busquem diffs de branches, listem labels e reviewers — tudo sem tirar o dev do Claude Code.' },
 
   { id: 'mcp-jira', label: 'Jira', sublabel: 'mcp', group: 'mcp',
     kind: 'MCP externo',
-    desc: 'Integração com o Jira do time (prefixo AP-). Permite que os comandos busquem detalhes da issue para contexto do bug/feature, publiquem o RCA do bug-hunter imediatamente como comentário ADF estruturado, e movam o status do ticket (ex: Em andamento → Em Revisão) conforme o fluxo avança.' },
+    desc: 'Integração com o Jira do time (prefixo AP-). Permite que os comandos busquem detalhes da issue para contexto do bug/feature, publiquem o RCA do <code>bug-hunter</code> imediatamente como comentário ADF estruturado, e movam o status do ticket (ex: Em andamento → Em Revisão) conforme o fluxo avança.' },
+
+  { id: 'mcp-sentry', label: 'Sentry', sublabel: 'mcp', group: 'mcp',
+    kind: 'MCP externo',
+    desc: 'Integração com o Sentry self-hosted do time (<code>sentry.hitfy.io</code>, organização <code>hit</code>, projeto <code>health-it-v4</code>). Consumida por múltiplos agentes: <code>bug-hunter</code> puxa stacktrace + variáveis locais + release na investigação inicial; <code>code-reviewer</code> roda "Sinais do Sentry por arquivo tocado" em cada diff; <code>planner</code> checa erros recentes nos arquivos-alvo antes de planejar mudanças; e a skill <code>create-jira-issue</code> enriquece cards quando o bug tem ID Sentry (HEALTH-IT-V4-XXX).' },
 
   // Outputs
   { id: 'out-mr', label: 'Merge Request', group: 'output',
     kind: 'Entregável',
-    desc: 'MR aberto ou atualizado no GitLab automaticamente pelos comandos /implement-feature, /fix-bug*, /review-mr. Default do time: sem reviewer, sem labels, assignee = autor. Descrição e commit 100% em português brasileiro, proporcional ao tamanho do diff.' },
+    desc: 'MR aberto ou atualizado no <code>GitLab</code> automaticamente pelos comandos <code>/implement-feature</code>, <code>/fix-bug</code>, <code>/fix-bug-laravel</code> e <code>/review-mr</code>. Default do time: sem reviewer, sem labels, assignee = autor. Descrição e commit 100% em português brasileiro, proporcional ao tamanho do diff.' },
 
   { id: 'out-rca', label: 'RCA no Jira', group: 'output',
     kind: 'Entregável',
-    desc: 'Root Cause Analysis publicado como comentário ADF estruturado no ticket AP-XXXX imediatamente após o bug-hunter retornar o relatório — ANTES da validação humana do fix. Calibrado pelo tamanho: compacto para <20 linhas, completo para schema change ou isolamento multi-tenant.' }
+    desc: 'Root Cause Analysis publicado como comentário ADF estruturado no ticket AP-XXXX imediatamente após o <code>bug-hunter</code> retornar o relatório — ANTES da validação humana do fix. Calibrado pelo tamanho: compacto para menos de 20 linhas, completo para schema change ou isolamento multi-tenant.' }
 ];
 
 // ============================================================
@@ -1835,18 +1849,20 @@ NODES.forEach(n => {
 // A few convenient aliases (chip text in the data → actual node label)
 CHIP_LOOKUP['Jira']   = CHIP_LOOKUP['Jira']   || { group: 'mcp', color: GROUPS.mcp.color, id: 'mcp-jira' };
 CHIP_LOOKUP['GitLab'] = CHIP_LOOKUP['GitLab'] || { group: 'mcp', color: GROUPS.mcp.color, id: 'mcp-gitlab' };
+CHIP_LOOKUP['Sentry'] = CHIP_LOOKUP['Sentry'] || { group: 'mcp', color: GROUPS.mcp.color, id: 'mcp-sentry' };
 
 // ============================================================
 // FLOWS — end-to-end timelines for commands & agents
 // ============================================================
 const FLOWS = {
   'cmd-plan-feature': [
-    { title: 'Usuário chama', desc: '<code>/plan-feature AP-1234</code> (ou link do Jira, ou descrição livre)' },
-    { title: 'Busca contexto no Jira', desc: 'Planner consulta o ticket via MCP Jira e lê descrição, comentários e critérios de aceite' },
-    { title: 'Consulta v4-v5-equivalence', desc: 'Obrigatório: se o módulo já migrou pro NestJS v5, o plano redireciona o trabalho — este repo não se aplica mais' },
+    { title: 'Usuário chama', desc: '<code>/plan-feature AP-1234</code> (ou link do <code>Jira</code>, ou descrição livre)' },
+    { title: 'Busca contexto no <code>Jira</code>', desc: '<code>planner</code> consulta o ticket via <code>Jira</code> e lê descrição, comentários e critérios de aceite' },
+    { title: 'Consulta <code>v4-v5-equivalence</code>', desc: 'Obrigatório: se o módulo já migrou pro NestJS v5, o plano redireciona o trabalho — este repo não se aplica mais' },
     { title: 'Classificação de complexidade', desc: 'GATE obrigatório: Baixa / Média / Alta / Muito Alta. Define o formato do plano e o fluxo de aprovação' },
+    { title: 'Sinais do <code>Sentry</code> (Média+)', desc: 'Passo 3.5 — pra cada arquivo-alvo que vai sofrer mudança, <code>planner</code> consulta o <code>Sentry</code> atrás de erros ativos. Se existem, vira risco documentado e entra na priorização do plano.' },
     { title: 'Gera plano calibrado', desc: 'Salva em <code>docs/plans/AP-XXXX.md</code> — enxuto para Baixa, completo com riscos para Média+, com rollback para Alta+' },
-    { title: 'Publica resumo no Jira', desc: 'Comentário ADF nativo com o plano e move ticket para "Em andamento"' },
+    { title: 'Publica resumo no <code>Jira</code>', desc: 'Comentário ADF nativo com o plano e move ticket para "Em andamento"' },
     { title: 'Baixa/Média → auto', desc: 'Delega direto para <code>/implement-feature</code>, sem pausa para aprovação humana' },
     { title: 'Alta/Muito Alta → pausa', desc: 'Espera aprovação humana explícita antes de liberar a implementação' }
   ],
@@ -1854,38 +1870,40 @@ const FLOWS = {
   'cmd-implement-feature': [
     { title: 'Usuário chama', desc: '<code>/implement-feature AP-1234</code>' },
     { title: 'Plano on-demand', desc: 'Se <code>docs/plans/AP-XXXX.md</code> não existe, aciona <code>/plan-feature</code> automaticamente' },
-    { title: 'Valida plano contra código', desc: 'Feature-dev confere que arquivos, rotas e models referenciados no plano ainda existem' },
+    { title: 'Valida plano contra código', desc: '<code>feature-dev</code> confere que arquivos, rotas e models referenciados no plano ainda existem' },
     { title: 'Scan dos vizinhos', desc: 'Lê 2-3 arquivos adjacentes pra herdar as convenções locais antes de editar' },
     { title: 'Implementação arquivo a arquivo', desc: 'Segue <code>coding-standards</code> e <code>laravel-architecture</code>. Calibra esforço pela complexidade do plano' },
-    { title: 'Gate ui-impact-check', desc: 'Se tocou <code>.blade/.js/.css/.vue</code>, valida colisões com vizinhos (dropdowns, ids, listeners globais) antes do smoke test' },
+    { title: 'Gate <code>ui-impact-check</code>', desc: 'Se tocou <code>.blade/.js/.css/.vue</code>, valida colisões com vizinhos (dropdowns, ids, listeners globais) antes do smoke test' },
     { title: 'Validação de sintaxe', desc: '<code>php -l</code> em cada arquivo PHP modificado · <code>node -c</code> em JS' },
     { title: 'Texto de commit preparado', desc: '100% português brasileiro, calibrado pela complexidade. Aguarda aprovação do usuário' },
-    { title: 'Commit + push + MR', desc: 'Após aprovação, executa tudo automaticamente via MCP GitLab. Sem reviewer, sem labels' },
-    { title: 'Limpa o plano', desc: 'Apaga <code>docs/plans/AP-XXXX.md</code> — é artefato temporário, rastreabilidade fica no Jira e no commit' }
+    { title: 'Commit + push + MR', desc: 'Após aprovação, executa tudo automaticamente via <code>GitLab</code>. Sem reviewer, sem labels' },
+    { title: 'Limpa o plano', desc: 'Apaga <code>docs/plans/AP-XXXX.md</code> — é artefato temporário, rastreabilidade fica no <code>Jira</code> e no commit' }
   ],
 
   'cmd-fix-bug': [
     { title: 'Usuário chama', desc: '<code>/fix-bug AP-2803</code> · descrição livre · ou stack trace colado' },
-    { title: 'Busca contexto no Jira', desc: 'Bug-hunter lê o ticket via MCP Jira se recebeu um AP-XXXX' },
-    { title: 'Investigação da causa raiz', desc: 'Lê arquivos relevantes, reproduz mentalmente o bug. NÃO propõe correção ainda' },
+    { title: 'Busca contexto no <code>Jira</code>', desc: '<code>bug-hunter</code> lê o ticket via <code>Jira</code> se recebeu um AP-XXXX' },
+    { title: 'Puxa do <code>Sentry</code>', desc: 'Antes de abrir qualquer arquivo, <code>bug-hunter</code> consulta o <code>Sentry</code>: <code>list_issues</code> pra localizar, <code>get_sentry_resource</code> pra stacktrace + breadcrumbs + variáveis locais, <code>get_issue_tag_values</code> pra release afetada. Dados concretos ANTES de qualquer hipótese.' },
+    { title: 'Investigação da causa raiz', desc: 'Com o contexto do Sentry em mãos, lê arquivos relevantes, reproduz mentalmente o bug. NÃO propõe correção ainda' },
     { title: 'Produz RCA calibrado', desc: 'Compacto (&lt;20 linhas), padrão (20-100) ou completo (schema/multi-tenant)' },
-    { title: 'RCA publicado no Jira', desc: 'Comentário ADF imediato — ANTES da validação humana do fix, para registro rápido' },
+    { title: 'RCA publicado no <code>Jira</code>', desc: 'Comentário ADF imediato — ANTES da validação humana do fix, para registro rápido' },
     { title: 'Fix cirúrgico', desc: 'Aplica correção mínima no arquivo identificado, sem tocar em nada adjacente' },
     { title: 'Validação manual', desc: '<code>php -l</code> + smoke test descrito no RCA (este repo não tem testes automatizados)' },
     { title: 'Aprovação do commit', desc: 'Apresenta texto do commit em português pra usuário aprovar' },
-    { title: 'Commit + push + MR', desc: 'Executa automaticamente via MCP GitLab após aprovação' }
+    { title: 'Commit + push + MR', desc: 'Executa automaticamente via <code>GitLab</code> após aprovação' }
   ],
 
   'cmd-fix-bug-laravel': [
     { title: 'Usuário chama', desc: '<code>/fix-bug-laravel AP-2803</code>' },
-    { title: 'Busca contexto no Jira', desc: 'Bug-hunter lê o ticket via MCP Jira' },
+    { title: 'Busca contexto no <code>Jira</code>', desc: '<code>bug-hunter</code> lê o ticket via <code>Jira</code>' },
+    { title: 'Puxa do <code>Sentry</code>', desc: 'Mesma investigação inicial do <code>/fix-bug</code>: stacktrace, variáveis locais, release, distribuição por environment. Importante pra bugs de schema porque revela se o erro é local dev ou produção real.' },
     { title: '⚠ Suspeita de schema change?', desc: 'Se sim, PARA. Consulta <code>migration-safety</code> inteira antes de escrever uma linha' },
     { title: 'Identifica ownership da tabela', desc: 'v4-only (portal) · v5-only (hsh_micros) · compartilhada. Se compartilhada/v5, o risco é quebrar o NestJS em produção' },
     { title: 'Investiga causa raiz', desc: 'Sem propor correção, respeitando a arquitetura em camadas Controller → Service → Model' },
-    { title: 'RCA publicado no Jira', desc: 'Com impacto cruzado v4/v5 explicitado quando aplicável' },
+    { title: 'RCA publicado no <code>Jira</code>', desc: 'Com impacto cruzado v4/v5 explicitado quando aplicável' },
     { title: 'Fix respeitando camadas', desc: 'Nunca <code>DB::connection()</code> em controller, nunca <code>new ServiceClass()</code>, nunca <code>echo json_encode()</code>' },
     { title: 'Validação manual', desc: '<code>php -l</code> + smoke test em ambiente local (único disponível pra reprodução)' },
-    { title: 'Commit + push + MR', desc: 'Automático via MCP GitLab após aprovação do commit em português' }
+    { title: 'Commit + push + MR', desc: 'Automático via <code>GitLab</code> após aprovação do commit em português' }
   ],
 
   'cmd-review-mr': [
@@ -1893,10 +1911,11 @@ const FLOWS = {
     { title: 'Detecta base da branch', desc: '<code>homologacao</code> para features/bugs · <code>master</code> para hotfix' },
     { title: 'Coleta o diff', desc: '<code>git diff homologacao...HEAD</code> + lista de arquivos alterados' },
     { title: 'Lê arquivos completos', desc: 'Nunca revisa só o diff — precisa do contexto ao redor' },
+    { title: 'Sinais do <code>Sentry</code> por arquivo tocado', desc: 'Passo 2.5 — em diffs Intermediário/Grande, pra cada arquivo do diff <code>code-reviewer</code> roda <code>list_issues</code> com filtro <code>stack.filename:*</code> no <code>Sentry</code>. Se o arquivo tem erros abertos recentes, vira ressalva/bloqueador no relatório (MR que não trata erros ativos vira risco).' },
     { title: 'Aplica checklist', desc: '<code>coding-standards</code> + <code>security-checklist</code> + <code>migration-safety</code>. Cada item PASS/FAIL/SKIP/N/A' },
     { title: 'Produz relatório', desc: 'Bloqueadores → Sugestões → Pontos positivos. Calibrado pelo tamanho do diff' },
     { title: 'Commita pendências locais', desc: 'Se o diff tem arquivos não commitados, commita antes de abrir o MR' },
-    { title: 'Abre ou atualiza o MR', desc: 'Via MCP GitLab. Sem reviewer_ids, sem labels, assignee = autor (default do time)' },
+    { title: 'Abre ou atualiza o MR', desc: 'Via <code>GitLab</code>. Sem reviewer_ids, sem labels, assignee = autor (default do time)' },
     { title: 'Publica relatório no MR', desc: 'Como primeiro comentário do merge request, auditável pelo revisor humano' }
   ],
 
@@ -1907,14 +1926,28 @@ const FLOWS = {
     { title: 'Salva em <code>docs/sessions/</code>', desc: 'Arquivo Markdown versionável. Próxima sessão abre e retoma sem re-explicar contexto' }
   ],
 
+  'cmd-sentry-triage': [
+    { title: 'Usuário chama', desc: '<code>/sentry-triage</code> · <code>/sentry-triage 14d</code> · <code>/sentry-triage days=14 limit=20</code>. Parser aceita shorthand <code>Nd</code> ou pares <code>key=value</code> em ordem livre. Clamp em 1-30 para ambos' },
+    { title: 'Lista top issues no <code>Sentry</code>', desc: '<code>list_issues</code> com <code>query=is:unresolved environment:prod</code> e <code>sort=freq</code>. Filtro <code>environment:prod</code> é obrigatório — o self-hosted recebe eventos de homolog, dev e smoke tests no mesmo projeto, e o sort por freq misturaria ruído. Não filtra por <code>level</code> (maioria dos erros PHP vem como <code>warning</code>)' },
+    { title: 'Busca detalhes de cada issue', desc: '<code>get_sentry_resource</code> pra cada candidato: <code>count</code>, <code>userCount</code>, <code>firstSeen</code>/<code>lastSeen</code>, <code>culprit</code>, release, e os 3 primeiros frames do <em>app</em> (ignorando <code>vendor/</code>, <code>node_modules/</code>, <code>/usr/share/</code>)' },
+    { title: 'Filtra ruído', desc: 'Remove: <code>count &lt; 5</code> (baixo impacto), primeiro frame em dependência/vendor, <code>status: ignored</code>, e auto-resolved (<code>lastSeen</code> &gt; 7 dias). Filtros textuais por título ficam pro dedup da skill' },
+    { title: 'Classifica severidade', desc: 'Mesmos thresholds da skill <code>create-jira-issue</code>: <code>count ≥ 500</code> ou <code>userCount ≥ 20</code> = Critical · ≥ 100 ou ≥ 5 = High · ≥ 20 ou ≥ 2 = Medium. Severidade final é da skill — se diverge do hint, a skill vence' },
+    { title: 'Apresenta tabela de candidatos', desc: 'Markdown compacto (id, título, count, users, culprit, severidade) antes de delegar. Modo compacto vira lista em 1-5 itens. Não pede confirmação — gate humano só existe nos drafts Medium/Low' },
+    { title: 'Delega pra <code>create-jira-issue</code>', desc: 'Modo interno (<code>kind: code-finding</code>) com <code>sentry_issue_id</code>. A skill enriquece o card com bloco ADF "Sentry", aplica labels <code>sentry-linked</code> + <code>sentry-triage</code>, faz dedup contra Jira aberto (rodar 2× no dia é seguro), e pode <strong>subir severidade</strong> via thresholds Sentry — única rota em que Medium vira High sem ritual de aprovação' },
+    { title: 'Nunca passa assignee', desc: 'Triagem proativa gera backlog para o time Plataforma. O default da skill é <strong>sem assignee</strong> — quem pegar o AP-XXXX se auto-atribui quando rodar <code>/fix-bug</code>' },
+    { title: 'Batch approval dos drafts Medium/Low', desc: 'Apresenta todos os drafts pendentes de uma vez (aceita <code>sim</code> · <code>nenhum</code> · <code>1,3</code>). Criticals/Highs já foram criadas na etapa anterior — não reverte' },
+    { title: 'Consolida tabela final', desc: 'Por issue: <em>Criada</em> (link AP-XXXX) · <em>Dedup</em> (AP-XXXX já existia) · <em>Descartada</em> (draft não aprovado) · <em>Falhou</em>. Resumo numérico + linha de filtrados. Execução recorrente via <code>/loop 24h /sentry-triage</code> ou <code>/schedule create "0 8 * * 1" /sentry-triage</code>' }
+  ],
+
   'agent-planner': [
     { title: 'Regra fundamental', desc: 'NUNCA escreve, edita ou gera código. Só planeja — se o usuário pedir pra implementar, recusa e explica' },
-    { title: 'Captura contexto', desc: 'Texto direto na conversa ou link do Jira (busca via MCP Jira)' },
+    { title: 'Captura contexto', desc: 'Texto direto na conversa ou link do <code>Jira</code> (busca via <code>Jira</code>)' },
     { title: 'GATE de complexidade', desc: 'Passo 2 obrigatório: classifica em Baixa/Média/Alta/Muito Alta ANTES de qualquer exploração' },
     { title: 'Explora código afetado', desc: 'Glob + Grep pra mapear arquivos, rotas, models. Lê o que precisar pra não planejar no vácuo' },
+    { title: 'Sinais do <code>Sentry</code>', desc: 'Passo 3.5 — pra cada arquivo-alvo, consulta <code>Sentry</code> por erros abertos recentes. Se o arquivo tem bugs ativos em produção, isso vira risco documentado no plano e influencia a ordem de implementação.' },
     { title: 'Produz plano calibrado', desc: 'Formato e profundidade seguem a complexidade. Nunca infla plano "só por garantia"' },
     { title: 'Salva handoff', desc: '<code>docs/plans/AP-XXXX.md</code> como artefato temporário — o plano é descartável' },
-    { title: 'Publica no Jira', desc: 'Comentário ADF nativo, move ticket para "Em andamento" (transition 31)' }
+    { title: 'Publica no <code>Jira</code>', desc: 'Comentário ADF nativo, move ticket para "Em andamento" (transition 31)' }
   ],
 
   'agent-feature-dev': [
@@ -1929,8 +1962,9 @@ const FLOWS = {
 
   'agent-bug-hunter': [
     { title: 'Regra fundamental', desc: 'NUNCA propõe correção antes de completar o RCA. Entender o problema > resolver rápido' },
-    { title: 'Recebe o bug', desc: 'Descrição textual · link do Jira (MCP) · stack trace · ou combinação' },
-    { title: 'Reproduz mentalmente', desc: 'Lê os arquivos relevantes, traça o caminho da execução até o ponto do erro' },
+    { title: 'Recebe o bug', desc: 'Descrição textual · link do <code>Jira</code> · stack trace · ou combinação' },
+    { title: 'Puxa contexto do <code>Sentry</code>', desc: 'Passo inicial OBRIGATÓRIO: <code>list_issues</code>, <code>list_events</code>, <code>get_sentry_resource</code>, <code>get_issue_tag_values</code>. Tira stacktrace, variáveis locais, release, distribuição por environment. Antes de qualquer hipótese, dados concretos.' },
+    { title: 'Reproduz mentalmente', desc: 'Com o contexto do Sentry em mãos, lê os arquivos relevantes e traça o caminho da execução até o ponto do erro' },
     { title: 'Localiza causa raiz', desc: 'Não confunde sintoma com causa. Grep por padrões similares em outros arquivos' },
     { title: 'Escreve RCA calibrado', desc: 'Trivial (3-5 linhas) · Padrão (template completo, seções curtas) · Completo (riscos e impacto expandidos)' },
     { title: 'Define smoke test manual', desc: 'Passos exatos pra reproduzir o cenário do bug e confirmar que agora funciona' },
@@ -1941,7 +1975,8 @@ const FLOWS = {
     { title: 'Contexto: única linha de defesa', desc: 'Repo sem linting, sem type-check, sem testes automatizados, sem checks no CI. Revisa com rigor proporcional' },
     { title: 'Identifica o escopo', desc: 'Branch/MR → <code>git diff main...HEAD</code> · arquivos específicos → lê cada um · módulo → Glob + leitura' },
     { title: 'Coleta contexto', desc: 'Lê cada arquivo completo (não só o diff). Verifica <code>git log</code> recente pra entender mudanças anteriores' },
-    { title: 'Aplica checklist completo', desc: 'coding-standards + security-checklist + migration-safety. Cada item PASS/FAIL/SKIP/N/A' },
+    { title: 'Sinais do <code>Sentry</code> por arquivo tocado', desc: 'Passo 2.5 — pra cada arquivo do diff, <code>list_issues</code> no <code>Sentry</code> com filtro <code>stack.filename:*</code>. Se existem erros abertos recentes naquele arquivo, vira ressalva explícita no relatório — cobra que o MR trate também (ou deixa claro que está fora de escopo).' },
+    { title: 'Aplica checklist completo', desc: '<code>coding-standards</code> + <code>security-checklist</code> + <code>migration-safety</code>. Cada item PASS/FAIL/SKIP/N/A' },
     { title: 'Grep por padrões similares', desc: 'Se achou um problema, verifica se existe em outros arquivos (informativo, não bloqueia)' },
     { title: 'Produz relatório estruturado', desc: 'Bloqueadores (B1-B6) · Sugestões (S1-S5) · Pontos positivos. Sem seções vazias' },
     { title: 'Veredito final', desc: 'Aprovado · Aprovado com ressalvas · Bloqueado. Calibrado pelo tamanho do diff' }
@@ -1960,12 +1995,12 @@ const FLOWS = {
     { title: 'Não corrige bugs, não refatora', desc: 'Foco exclusivo: documentação técnica. Se precisar mexer em código, delega' },
     { title: 'Duas audiências', desc: 'Devs internos do Hitfy · clientes e integradores enterprise. Escreve diferente pra cada um' },
     { title: 'Tipos de doc', desc: 'README · PHPDoc · Swagger/OpenAPI · ADRs · Changelog · Docs de módulo (knowledge base da HIRA)' },
-    { title: 'Infere do código', desc: 'Para docs de módulo (skill module-documentation), não pergunta nada — lê o código-fonte e produz' }
+    { title: 'Infere do código', desc: 'Para docs de módulo (skill <code>module-documentation</code>), não pergunta nada — lê o código-fonte e produz' }
   ],
 
   'mcp-jira': [
     { title: 'Busca issue', desc: '<code>jira_get /rest/api/3/issue/AP-XXXX</code> — retorna descrição, status, comentários, critérios de aceite' },
-    { title: 'Publica comentário ADF', desc: 'RCA do bug-hunter postado IMEDIATAMENTE após o relatório, antes da validação humana do fix' },
+    { title: 'Publica comentário ADF', desc: 'RCA do <code>bug-hunter</code> postado IMEDIATAMENTE após o relatório, antes da validação humana do fix' },
     { title: 'Move status do ticket', desc: 'Transition 31 (Em andamento) · 61 (Em revisão). Claude nunca move para outros status (Done, Cancelled, etc.)' },
     { title: 'Formato obrigatório', desc: 'Todo comentário em ADF nativo (<code>type: doc / version 1 / content[]</code>), nunca string pura' }
   ],
@@ -1974,8 +2009,16 @@ const FLOWS = {
     { title: 'Lista MRs existentes', desc: '<code>list_merge_requests</code> filtrando pela branch atual antes de decidir abrir ou atualizar' },
     { title: 'Abre novo MR', desc: '<code>create_merge_request</code> com título, descrição, source/target branch. Sem reviewer, sem labels (default do time)' },
     { title: 'Atualiza MR existente', desc: 'Se já existe MR aberto pra branch, atualiza descrição com o novo relatório' },
-    { title: 'Publica relatório', desc: 'Comentário no MR com o relatório do code-reviewer, primeira coisa que o revisor humano lê' },
+    { title: 'Publica relatório', desc: 'Comentário no MR com o relatório do <code>code-reviewer</code>, primeira coisa que o revisor humano lê' },
     { title: 'Busca diffs', desc: '<code>get_merge_request_diffs</code> + <code>get_merge_request_file_diff</code> pra revisar mudanças específicas' }
+  ],
+
+  'mcp-sentry': [
+    { title: 'Investigação inicial do bug-hunter', desc: 'Quando <code>bug-hunter</code> pega um bug, puxa do Sentry: <code>list_issues</code> pra localizar o erro, <code>list_events</code> pro evento mais recente, <code>get_sentry_resource</code> pra stacktrace + breadcrumbs + variáveis locais, e <code>get_issue_tag_values</code> pra distribuição por release/environment. Base de dados concreta antes de qualquer RCA.' },
+    { title: 'Sinais por arquivo tocado (code-reviewer)', desc: 'No Passo 2.5 do <code>code-reviewer</code>, pra cada arquivo do diff roda <code>list_issues</code> com filtro <code>stack.filename:*</code>. Se o arquivo tem erros abertos recentes, o revisor vê isso antes de aprovar e pode cobrar que o MR trate também.' },
+    { title: 'Sinais nos arquivos-alvo (planner)', desc: 'No Passo 3.5 do <code>planner</code>, antes de planejar mudanças em arquivos existentes, consulta Sentry pra saber se aqueles arquivos têm erros ativos em produção. Influencia a priorização e os riscos do plano.' },
+    { title: 'Enriquecimento de card no Jira', desc: 'A skill <code>create-jira-issue</code>, quando o bug tem ID Sentry (formato <code>HEALTH-IT-V4-XXX</code>), chama <code>get_sentry_resource</code> pra puxar contexto completo antes de criar o card. Tem fallback se o MCP falhar.' },
+    { title: 'Forçado por /plan-feature e /review-mr', desc: 'Esses comandos marcam Sentry como MCP obrigatório em planos Média/Alta/Muito Alta e diffs Intermediário/Grande. O passo de consulta Sentry não é opcional nesses casos.' }
   ],
 
   'hook-check-secrets': [
@@ -2008,6 +2051,7 @@ const LINKS = [
   { source: 'user', target: 'cmd-fix-bug-laravel',   type: 'call' },
   { source: 'user', target: 'cmd-review-mr',         type: 'call' },
   { source: 'user', target: 'cmd-context-dump',      type: 'call' },
+  { source: 'user', target: 'cmd-sentry-triage',     type: 'call' },
 
   // Command → Agent
   { source: 'cmd-plan-feature',      target: 'agent-planner',       type: 'invoke' },
@@ -2017,7 +2061,13 @@ const LINKS = [
   { source: 'cmd-review-mr',         target: 'agent-code-reviewer', type: 'invoke' },
 
   // Command auto-delegation
-  { source: 'cmd-plan-feature', target: 'cmd-implement-feature', type: 'auto' },
+  { source: 'cmd-plan-feature',      target: 'cmd-implement-feature', type: 'auto' },
+  { source: 'cmd-implement-feature', target: 'cmd-plan-feature',      type: 'auto' },
+
+  // Commands that materialize missing Jira cards via create-jira-issue (in-process, before hitting the agent)
+  { source: 'cmd-plan-feature',      target: 'skill-create-jira-issue', type: 'consult' },
+  { source: 'cmd-fix-bug',           target: 'skill-create-jira-issue', type: 'consult' },
+  { source: 'cmd-fix-bug-laravel',   target: 'skill-create-jira-issue', type: 'consult' },
 
   // Agent → Skill (consult)
   { source: 'agent-planner', target: 'skill-v4-v5-equivalence',    type: 'consult' },
@@ -2050,12 +2100,31 @@ const LINKS = [
 
   { source: 'agent-docs-writer', target: 'skill-module-documentation', type: 'consult' },
 
+  // Agents that delegate out-of-scope findings to create-jira-issue
+  { source: 'agent-planner',       target: 'skill-create-jira-issue', type: 'consult' },
+  { source: 'agent-feature-dev',   target: 'skill-create-jira-issue', type: 'consult' },
+  { source: 'agent-bug-hunter',    target: 'skill-create-jira-issue', type: 'consult' },
+  { source: 'agent-code-reviewer', target: 'skill-create-jira-issue', type: 'consult' },
+
   // Agent → MCP
   { source: 'agent-planner',       target: 'mcp-jira',   type: 'external' },
+  { source: 'agent-planner',       target: 'mcp-sentry', type: 'external' },
   { source: 'agent-feature-dev',   target: 'mcp-gitlab', type: 'external' },
   { source: 'agent-bug-hunter',    target: 'mcp-jira',   type: 'external' },
   { source: 'agent-bug-hunter',    target: 'mcp-gitlab', type: 'external' },
+  { source: 'agent-bug-hunter',    target: 'mcp-sentry', type: 'external' },
   { source: 'agent-code-reviewer', target: 'mcp-gitlab', type: 'external' },
+  { source: 'agent-code-reviewer', target: 'mcp-sentry', type: 'external' },
+
+  // Skill → MCP (create-jira-issue enriches Jira cards with Sentry data,
+  // and writes to Jira directly — atypical but reflects how the skill actually works)
+  { source: 'skill-create-jira-issue', target: 'mcp-jira',   type: 'external' },
+  { source: 'skill-create-jira-issue', target: 'mcp-sentry', type: 'external' },
+
+  // /sentry-triage orchestrates MCPs directly and delegates to the skill (no agent in the middle)
+  { source: 'cmd-sentry-triage', target: 'mcp-sentry',           type: 'external' },
+  { source: 'cmd-sentry-triage', target: 'mcp-jira',             type: 'external' },
+  { source: 'cmd-sentry-triage', target: 'skill-create-jira-issue', type: 'consult' },
 
   // MCP → Output
   { source: 'mcp-gitlab', target: 'out-mr',  type: 'produce' },
@@ -2547,8 +2616,12 @@ function showTooltip(d, anchorEl) {
   tooltipKind.textContent = d.kind || GROUPS[d.group].label;
   tooltipLabel.textContent = d.label;
 
-  // First sentence of desc, capped
-  const raw = (d.desc || '').replace(/\s+/g, ' ').trim();
+  // First sentence of desc — strip any HTML tags (the full desc may contain
+  // <code> references that would render as literal text here)
+  const raw = (d.desc || '')
+    .replace(/<\/?[^>]+>/g, '')     // remove HTML tags
+    .replace(/\s+/g, ' ')
+    .trim();
   const firstSentence = raw.split(/\.(?=\s|$)/)[0];
   const trimmed = firstSentence.length > 180 ? firstSentence.slice(0, 180) + '…' : firstSentence + '.';
   tooltipDesc.textContent = trimmed;
@@ -2668,10 +2741,18 @@ function renderChip(text) {
   </span>`;
 }
 
-// Decorate <code>X</code> tags inside flow descs: if X matches a node, replace with a colored mini-chip
+// Case-insensitive version of CHIP_LOOKUP, so references written as
+// "Feature-dev" or "Bug-Hunter" in flow descs still match their node labels.
+const CHIP_LOOKUP_CI = {};
+Object.keys(CHIP_LOOKUP).forEach(k => {
+  CHIP_LOOKUP_CI[k.toLowerCase()] = CHIP_LOOKUP[k];
+});
+
+// Decorate <code>X</code> tags inside flow descs: if X matches a node label
+// (exact or case-insensitive), replace with a colored mini-chip.
 function decorateCodeChips(html) {
   return html.replace(/<code>([^<]+)<\/code>/g, (match, text) => {
-    const info = CHIP_LOOKUP[text];
+    const info = CHIP_LOOKUP[text] || CHIP_LOOKUP_CI[text.toLowerCase()];
     if (!info) return match;
     return `<span class="inline-chip" data-node-id="${info.id}" style="--chip-color: ${info.color};">
       <svg viewBox="0 0 24 24"><use href="#icon-${info.group}"/></svg>${text}
@@ -2756,7 +2837,7 @@ function openDetails(d) {
     <h2 class="details-title">${d.label}</h2>
     ${d.sublabel && !tier ? `<div class="details-subtitle">${d.sublabel}</div>` : ''}
     ${tierBadgeHtml}
-    <p class="details-desc">${d.desc}</p>
+    <p class="details-desc">${decorateCodeChips(d.desc || '')}</p>
   `;
 
   // Scrollable bottom: chips + flow (or friendly placeholder if neither)
@@ -2915,9 +2996,9 @@ const TOUR_STEPS = [
     highlight: ['user']
   },
   {
-    title: 'A porta de entrada: 6 comandos',
-    desc: 'Os comandos cobrem todo o ciclo de desenvolvimento — planejar features, implementar, corrigir bugs, revisar MRs e salvar contexto da sessão. Cada um sabe exatamente o que fazer.',
-    highlight: ['user', 'cmd-plan-feature', 'cmd-implement-feature', 'cmd-fix-bug', 'cmd-fix-bug-laravel', 'cmd-review-mr', 'cmd-context-dump']
+    title: 'A porta de entrada: 7 comandos',
+    desc: 'Os comandos cobrem todo o ciclo de desenvolvimento — planejar features, implementar, corrigir bugs, revisar MRs, salvar contexto da sessão, e agora também fazer triagem proativa do Sentry transformando erros em prod em backlog Jira automaticamente. Cada um sabe exatamente o que fazer.',
+    highlight: ['user', 'cmd-plan-feature', 'cmd-implement-feature', 'cmd-fix-bug', 'cmd-fix-bug-laravel', 'cmd-review-mr', 'cmd-context-dump', 'cmd-sentry-triage']
   },
   {
     title: 'O cérebro: agentes especializados',
@@ -2925,14 +3006,14 @@ const TOUR_STEPS = [
     highlight: ['cmd-fix-bug', 'agent-bug-hunter', 'cmd-plan-feature', 'agent-planner', 'cmd-implement-feature', 'agent-feature-dev', 'cmd-review-mr', 'agent-code-reviewer', 'agent-refactor-guide', 'agent-docs-writer']
   },
   {
-    title: 'A base de conhecimento: 8 skills',
-    desc: 'Skills são a memória do time. Documentam padrões de código, arquitetura Laravel, regras de migration, checklist de segurança. Os agentes consultam essas skills antes de agir — assim, todo código gerado segue as convenções do repo.',
-    highlight: ['agent-bug-hunter', 'agent-feature-dev', 'skill-coding-standards', 'skill-laravel-architecture', 'skill-git-workflow', 'skill-migration-safety', 'skill-security-checklist', 'skill-v4-v5-equivalence', 'skill-ui-impact-check', 'skill-module-documentation']
+    title: 'A base de conhecimento: 9 skills',
+    desc: 'Skills são a memória do time. Documentam padrões de código, arquitetura Laravel, regras de migration, checklist de segurança, e até como criar issues no Jira a partir de achados acidentais. Os agentes consultam essas skills antes de agir — assim, todo código gerado segue as convenções do repo.',
+    highlight: ['agent-bug-hunter', 'agent-feature-dev', 'skill-coding-standards', 'skill-laravel-architecture', 'skill-git-workflow', 'skill-migration-safety', 'skill-security-checklist', 'skill-v4-v5-equivalence', 'skill-ui-impact-check', 'skill-module-documentation', 'skill-create-jira-issue']
   },
   {
     title: 'A integração externa: MCP',
-    desc: 'Os agentes falam com sistemas externos via MCP (Model Context Protocol). Buscam contexto de tickets no Jira, publicam RCAs como comentário, abrem MRs no GitLab — tudo sem o dev sair do Claude Code.',
-    highlight: ['agent-bug-hunter', 'agent-planner', 'agent-feature-dev', 'agent-code-reviewer', 'mcp-jira', 'mcp-gitlab']
+    desc: 'Os agentes falam com sistemas externos via MCP (Model Context Protocol). Buscam contexto de tickets no Jira, publicam RCAs como comentário, abrem MRs no GitLab, e agora também consultam o Sentry para triagem reativa (bug-hunter) e proativa (<code>/sentry-triage</code>, que fala direto com o Sentry sem agente intermediário) — tudo sem o dev sair do Claude Code.',
+    highlight: ['agent-bug-hunter', 'agent-planner', 'agent-feature-dev', 'agent-code-reviewer', 'cmd-sentry-triage', 'mcp-jira', 'mcp-gitlab', 'mcp-sentry']
   },
   {
     title: 'O resultado: entregáveis automáticos',
@@ -2963,12 +3044,35 @@ const tourNext = document.getElementById('tour-next');
 
 tourTotal.textContent = TOUR_STEPS.length;
 
+// Tracks whether the tour forced the organize layout / legend collapse
+// (so we can undo them on exit without disturbing state the user had manually set)
+let tourForcedOrganize = false;
+let tourForcedLegendCollapse = false;
+
 function startTour() {
   tourStep = 0;
   document.body.classList.add('tour-mode');
   tourOverlay.classList.add('active');
   closeDetails();
   resetLinks();
+
+  // Collapse the legend to a thin vertical strip so it doesn't compete with
+  // the tour narration — only if the user hadn't already collapsed it manually
+  const legendEl = document.getElementById('legend');
+  if (legendEl && !legendEl.classList.contains('collapsed')) {
+    legendEl.classList.add('collapsed');
+    tourForcedLegendCollapse = true;
+  }
+
+  // Organize the graph before the narration starts — gives a clean,
+  // easy-to-read layout (columns by type) while the tour runs.
+  if (!isOrganized) {
+    tourForcedOrganize = true;
+    toggleOrganize();
+  } else {
+    tourForcedOrganize = false;
+  }
+
   showTourStep();
 }
 
@@ -2977,6 +3081,77 @@ function exitTour() {
   tourOverlay.classList.remove('active');
   node.classed('tour-on', false);
   resetLinks();
+
+  // Reset any pan/zoom the tour imposed on the viewport
+  svg.transition('tour-pan')
+    .duration(550)
+    .ease(d3.easeCubicInOut)
+    .call(zoomBehavior.transform, d3.zoomIdentity);
+
+  // Undo the organize if the tour was the one that imposed it
+  if (tourForcedOrganize && isOrganized) {
+    tourForcedOrganize = false;
+    toggleOrganize();
+  }
+
+  // Restore the legend if the tour was the one that collapsed it
+  if (tourForcedLegendCollapse) {
+    tourForcedLegendCollapse = false;
+    const legendEl = document.getElementById('legend');
+    if (legendEl) legendEl.classList.remove('collapsed');
+  }
+}
+
+// Pan (and scale down if necessary) the view so the highlighted nodes of a
+// tour step are centered on screen. Uses fx/fy as the authoritative position
+// when the nodes are pinned (organized layout), falling back to x/y otherwise.
+function centerOnHighlight(nodeIds) {
+  if (!nodeIds || nodeIds.length === 0) return;
+  const highlighted = nodesCopy.filter(n => nodeIds.includes(n.id));
+  if (highlighted.length === 0) return;
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  highlighted.forEach(n => {
+    const nx = n.fx != null ? n.fx : n.x;
+    const ny = n.fy != null ? n.fy : n.y;
+    if (nx == null || ny == null) return;
+    const r = (GROUPS[n.group]?.radius || 24) + 42;
+    if (nx - r < minX) minX = nx - r;
+    if (nx + r > maxX) maxX = nx + r;
+    if (ny - r < minY) minY = ny - r;
+    if (ny + r > maxY) maxY = ny + r;
+  });
+  if (minX === Infinity) return;
+
+  const bboxCx = (minX + maxX) / 2;
+  const bboxCy = (minY + maxY) / 2;
+  const bboxW = maxX - minX;
+  const bboxH = maxY - minY;
+
+  const vpW = window.innerWidth;
+  const vpH = window.innerHeight;
+  const marginX = 140;
+  const marginY = 200; // reserve room at the bottom for the tour overlay
+
+  // Fit the bbox inside (vpW - 2*marginX) × (vpH - 2*marginY). Never zoom IN
+  // past 1.0 (keeps single-node steps visually calm).
+  let scale = Math.min(
+    (vpW - 2 * marginX) / Math.max(bboxW, 1),
+    (vpH - 2 * marginY) / Math.max(bboxH, 1)
+  );
+  scale = Math.min(1.0, scale);
+  scale = Math.max(0.3, scale); // respect zoomBehavior.scaleExtent
+
+  // Horizontal: exact viewport center. Vertical: slightly above center to
+  // leave breathing room above the tour overlay at the bottom.
+  const tx = vpW / 2 - bboxCx * scale;
+  const ty = vpH * 0.44 - bboxCy * scale;
+
+  const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+  svg.transition('tour-pan')
+    .duration(750)
+    .ease(d3.easeCubicInOut)
+    .call(zoomBehavior.transform, transform);
 }
 
 function showTourStep() {
@@ -2996,6 +3171,9 @@ function showTourStep() {
 
   tourPrev.disabled = tourStep === 0;
   tourNext.textContent = tourStep === TOUR_STEPS.length - 1 ? 'Concluir ✓' : 'Próximo →';
+
+  // Pan the camera so the highlighted cluster sits at the center of the viewport
+  centerOnHighlight(step.highlight);
 }
 
 function nextTourStep() {
@@ -3289,9 +3467,12 @@ document.getElementById('heat-toggle').addEventListener('click', () => {
 // Toggle between free-form radial layout and an organized columns-by-type grid
 // where every node is pinned in place. Click again (or press O) to unlock.
 let isOrganized = false;
+let organizeAnimationId = null;
 const ORGANIZE_COL_ORDER = ['user', 'command', 'agent', 'skill', 'mcp', 'output', 'hook'];
 
-function organizeLayout() {
+// Compute the target (x, y) for each node in the organized grid layout.
+// Returns a Map<id, {x, y}>.
+function computeOrganizeTargets() {
   const vpW = window.innerWidth;
   const vpH = window.innerHeight;
   const padX = 120;
@@ -3300,6 +3481,7 @@ function organizeLayout() {
   const colGap = availableW / (cols.length - 1);
   const rowGap = 82;
 
+  const targets = new Map();
   const byGroup = {};
   nodesCopy.forEach(n => { (byGroup[n.group] = byGroup[n.group] || []).push(n); });
 
@@ -3309,13 +3491,72 @@ function organizeLayout() {
     const n = colNodes.length;
     colNodes.forEach((node, i) => {
       const y = vpH / 2 + (i - (n - 1) / 2) * rowGap;
-      node.fx = x;
-      node.fy = y;
+      targets.set(node.id, { x, y });
     });
   });
+  return targets;
+}
+
+// Smoothly tween fx/fy from the current node positions to the organized grid
+// targets over ~850ms. The simulation keeps ticking (via alphaTarget) so the
+// tick handler snaps x/y to the animated fx/fy and redraws nodes+links.
+function animateToOrganized() {
+  if (organizeAnimationId !== null) {
+    cancelAnimationFrame(organizeAnimationId);
+    organizeAnimationId = null;
+  }
+
+  const targets = computeOrganizeTargets();
+  const starts = new Map();
+  nodesCopy.forEach(n => starts.set(n.id, { x: n.x, y: n.y }));
+
+  // Keep the simulation ticking so fx/fy updates propagate to rendered positions
+  simulation.alphaTarget(0.08).restart();
+
+  const duration = 850;
+  const startTime = performance.now();
+
+  function step() {
+    // User toggled off mid-animation — abort
+    if (!isOrganized) {
+      simulation.alphaTarget(0);
+      organizeAnimationId = null;
+      return;
+    }
+    const elapsed = performance.now() - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    // easeInOutCubic
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    nodesCopy.forEach(n => {
+      const target = targets.get(n.id);
+      const start = starts.get(n.id);
+      if (!target || !start) return;
+      n.fx = start.x + (target.x - start.x) * eased;
+      n.fy = start.y + (target.y - start.y) * eased;
+    });
+
+    if (t < 1) {
+      organizeAnimationId = requestAnimationFrame(step);
+    } else {
+      // Snap to exact targets at the end
+      nodesCopy.forEach(n => {
+        const target = targets.get(n.id);
+        if (target) { n.fx = target.x; n.fy = target.y; }
+      });
+      simulation.alphaTarget(0);
+      organizeAnimationId = null;
+    }
+  }
+  organizeAnimationId = requestAnimationFrame(step);
 }
 
 function unorganizeLayout() {
+  // Cancel any in-flight organize animation
+  if (organizeAnimationId !== null) {
+    cancelAnimationFrame(organizeAnimationId);
+    organizeAnimationId = null;
+  }
   nodesCopy.forEach(n => {
     if (n.id !== 'user') {
       n.fx = null;
@@ -3328,9 +3569,7 @@ function unorganizeLayout() {
 function toggleOrganize() {
   isOrganized = !isOrganized;
   if (isOrganized) {
-    organizeLayout();
-    simulation.alpha(0.35).restart();
-    setTimeout(() => simulation.alphaTarget(0), 1200);
+    animateToOrganized();
   } else {
     unorganizeLayout();
     simulation.alpha(0.5).restart();
